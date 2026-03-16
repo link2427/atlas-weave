@@ -45,6 +45,12 @@ class EventEmitter:
             summary=summary,
         )
 
+    def node_failed(self, node_id: str, error: str) -> None:
+        self.emit("node_failed", node_id=node_id, error=error)
+
+    def node_skipped(self, node_id: str, message: str) -> None:
+        self.emit("node_skipped", node_id=node_id, message=message)
+
     def run_completed(self, summary: dict[str, Any]) -> None:
         self.emit("run_completed", summary=summary)
 

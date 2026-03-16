@@ -7,19 +7,19 @@ Tauri v2 + SvelteKit app running, Python project structure created, Rust ↔ Pyt
 
 ### Checklist
 
-- [ ] Create monorepo root with `Cargo.toml` workspace, `package.json`, `.gitignore`
-- [ ] Initialize Tauri v2 app in `apps/atlas-weave-shell/`
-- [ ] Initialize SvelteKit in `frontend/app/` with TypeScript, adapter-static, TailwindCSS
-- [ ] Configure `tauri.conf.json`: app name "Atlas Weave", window size 1400x900
-- [ ] Create `apps/atlas-weave-shell/src-tauri/src/db.rs`: SQLite init with schema from ARCHITECTURE.md Section 5
-- [ ] Create Python project in `python/` with `pyproject.toml` and `atlas_weave/` package
-- [ ] Implement `atlas_weave/events.py`: `EventEmitter` class that writes JSON lines to stdout
-- [ ] Implement `atlas_weave/runner.py`: reads `--recipe` and `--run-id` args, imports recipe, emits `run_completed` event (stub — no real execution yet)
-- [ ] Implement `services/sidecar.rs`: spawn Python process (`python -m atlas_weave.runner --recipe {name} --run-id {uuid}`), read stdout line-by-line, parse JSON, emit Tauri events
-- [ ] Implement `commands/runs.rs`: `start_run` command that triggers sidecar
-- [ ] Create a test recipe (`python/recipes/test_echo/recipe.py`) with one agent that emits 10 log messages with 1-second delays
-- [ ] Create basic frontend: recipe list page, "Start Run" button, raw scrolling log output from Tauri event listener
-- [ ] Verify: click Start Run → Python spawns → logs stream into UI in real time
+- [x] Create monorepo root with `Cargo.toml` workspace, `package.json`, `.gitignore`
+- [x] Initialize Tauri v2 app in `apps/atlas-weave-shell/`
+- [x] Initialize SvelteKit in `frontend/app/` with TypeScript, adapter-static, TailwindCSS
+- [x] Configure `tauri.conf.json`: app name "Atlas Weave", window size 1400x900
+- [x] Create `apps/atlas-weave-shell/src-tauri/src/db.rs`: SQLite init with schema from ARCHITECTURE.md Section 5
+- [x] Create Python project in `python/` with `pyproject.toml` and `atlas_weave/` package
+- [x] Implement `atlas_weave/events.py`: `EventEmitter` class that writes JSON lines to stdout
+- [x] Implement `atlas_weave/runner.py`: reads `--recipe` and `--run-id` args, imports recipe, emits `run_completed` event (stub — no real execution yet)
+- [x] Implement `services/sidecar.rs`: spawn Python process (`python -m atlas_weave.runner --recipe {name} --run-id {uuid}`), read stdout line-by-line, parse JSON, emit Tauri events
+- [x] Implement `commands/runs.rs`: `start_run` command that triggers sidecar
+- [x] Create a test recipe (`python/recipes/test_echo/recipe.py`) with one agent that emits 10 log messages with 1-second delays
+- [x] Create basic frontend: recipe list page, "Start Run" button, raw scrolling log output from Tauri event listener
+- [x] Verify: click Start Run → Python spawns → logs stream into UI in real time
 
 ### Acceptance Criteria
 1. `cargo tauri dev` launches the app
@@ -37,16 +37,16 @@ The Python `atlas_weave` library has a complete agent framework: Agent, Recipe, 
 
 ### Checklist
 
-- [ ] Implement `atlas_weave/agent.py`: `Agent` abstract base class with `name`, `description`, `inputs`, `outputs`, `execute(ctx) -> AgentResult`
-- [ ] Implement `atlas_weave/agent.py`: `AgentResult` Pydantic model (records_processed, records_created, records_updated, errors, summary)
-- [ ] Implement `atlas_weave/context.py`: `AgentContext` with `run_id`, `config`, `db`, `tools`, `emit`
-- [ ] Implement `atlas_weave/recipe.py`: `Recipe` base class with `name`, `description`, `version`, `agents`, `edges`, `config_schema`
-- [ ] Implement `atlas_weave/tool.py`: `Tool` abstract base class with `name`, `description`, `call(ctx, **kwargs)`
-- [ ] Implement `atlas_weave/dag.py`: topological sort of agents from `edges`, detect cycles, determine execution order, identify parallelizable agents
-- [ ] Update `atlas_weave/runner.py`: import recipe → build DAG → execute agents in order → emit `node_started`/`node_progress`/`node_completed`/`node_failed` events per agent → emit `run_completed`/`run_failed`
-- [ ] Handle agent failures: if agent fails, mark downstream dependents as `skipped`
-- [ ] Create test recipe with 3 agents: A → B → C, where A produces data, B transforms it, C validates it
-- [ ] Verify: agents execute in correct order, events stream to Rust, failures propagate correctly
+- [x] Implement `atlas_weave/agent.py`: `Agent` abstract base class with `name`, `description`, `inputs`, `outputs`, `execute(ctx) -> AgentResult`
+- [x] Implement `atlas_weave/agent.py`: `AgentResult` Pydantic model (records_processed, records_created, records_updated, errors, summary)
+- [x] Implement `atlas_weave/context.py`: `AgentContext` with `run_id`, `config`, `db`, `tools`, `emit`
+- [x] Implement `atlas_weave/recipe.py`: `Recipe` base class with `name`, `description`, `version`, `agents`, `edges`, `config_schema`
+- [x] Implement `atlas_weave/tool.py`: `Tool` abstract base class with `name`, `description`, `call(ctx, **kwargs)`
+- [x] Implement `atlas_weave/dag.py`: topological sort of agents from `edges`, detect cycles, determine execution order, identify parallelizable agents
+- [x] Update `atlas_weave/runner.py`: import recipe → build DAG → execute agents in order → emit `node_started`/`node_progress`/`node_completed`/`node_failed` events per agent → emit `run_completed`/`run_failed`
+- [x] Handle agent failures: if agent fails, mark downstream dependents as `skipped`
+- [x] Create test recipe with 3 agents: A → B → C, where A produces data, B transforms it, C validates it
+- [x] Verify: agents execute in correct order, events stream to Rust, failures propagate correctly
 
 ### Acceptance Criteria
 1. Test recipe with A → B → C executes in order

@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, BufReader},
     process::Command,
 };
 
@@ -17,9 +17,11 @@ pub async fn spawn_run(
     database: Database,
     recipe: String,
     run_id: String,
+    config: Value,
 ) -> AppResult<()> {
     let repo_root = paths::repo_root()?;
     let python_dir = repo_root.join("python");
+    let config_json = serde_json::to_string(&config)?;
 
     let mut command = Command::new("python");
     command
@@ -30,30 +32,18 @@ pub async fn spawn_run(
         .arg(&recipe)
         .arg("--run-id")
         .arg(&run_id)
+        .arg("--config-json")
+        .arg(config_json)
         .current_dir(&repo_root)
         .env("PYTHONPATH", python_dir.to_string_lossy().to_string())
         .env("PYTHONUNBUFFERED", "1")
-        .stdin(Stdio::piped())
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
     let mut child = command
         .spawn()
         .with_context(|| format!("failed to spawn Python runner for recipe {recipe}"))?;
-
-    if let Some(mut stdin) = child.stdin.take() {
-        let command_json = json!({
-            "type": "start_run",
-            "run_id": &run_id,
-            "recipe": &recipe,
-            "config": {}
-        });
-        let message = format!("{command_json}\n");
-        tokio::spawn(async move {
-            let _ = stdin.write_all(message.as_bytes()).await;
-            let _ = stdin.flush().await;
-        });
-    }
 
     let stdout = child
         .stdout

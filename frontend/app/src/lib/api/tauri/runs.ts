@@ -5,6 +5,9 @@ export type StartRunResponse = {
   status: string;
 };
 
-export function startRun(recipe: string): Promise<StartRunResponse> {
-  return invoke<StartRunResponse>('start_run', { recipe });
+export function startRun(
+  recipe: string,
+  config: Record<string, unknown> = {}
+): Promise<StartRunResponse> {
+  return invoke<StartRunResponse>('start_run', { recipe, config });
 }

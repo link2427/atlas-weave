@@ -1,4 +1,5 @@
 use serde::Serialize;
+use serde_json::{json, Value};
 use tauri::{AppHandle, State};
 use uuid::Uuid;
 
@@ -16,14 +17,16 @@ pub async fn start_run(
     app: AppHandle,
     state: State<'_, AppState>,
     recipe: String,
+    config: Option<Value>,
 ) -> AppResult<StartRunResponse> {
     let run_id = Uuid::new_v4().to_string();
     let database = state.database.as_ref().clone();
     let run_id_for_task = run_id.clone();
+    let run_config = config.unwrap_or_else(|| json!({}));
 
-    database.insert_run(&run_id, &recipe)?;
+    database.insert_run(&run_id, &recipe, &run_config)?;
     tokio::spawn(async move {
-        let _ = sidecar::spawn_run(app, database, recipe, run_id_for_task).await;
+        let _ = sidecar::spawn_run(app, database, recipe, run_id_for_task, run_config).await;
     });
 
     Ok(StartRunResponse {

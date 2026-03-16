@@ -113,18 +113,20 @@ impl Database {
         description: &str,
         version: &str,
         path: &Path,
+        config_schema: &str,
         dag_json: &str,
     ) -> AppResult<()> {
         let connection = self.connect()?;
 
         connection.execute(
             r#"
-            INSERT INTO recipes (name, description, version, path, dag_json, discovered_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            INSERT INTO recipes (name, description, version, path, config_schema, dag_json, discovered_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             ON CONFLICT(name) DO UPDATE SET
                 description = excluded.description,
                 version = excluded.version,
                 path = excluded.path,
+                config_schema = excluded.config_schema,
                 dag_json = excluded.dag_json,
                 discovered_at = excluded.discovered_at
             "#,
@@ -133,6 +135,7 @@ impl Database {
                 description,
                 version,
                 path.to_string_lossy().to_string(),
+                config_schema,
                 dag_json,
                 Utc::now().to_rfc3339()
             ],
@@ -159,15 +162,25 @@ impl Database {
         Ok(recipes)
     }
 
-    pub fn insert_run(&self, run_id: &str, recipe_name: &str) -> AppResult<()> {
+    pub fn insert_run(
+        &self,
+        run_id: &str,
+        recipe_name: &str,
+        config_json: &serde_json::Value,
+    ) -> AppResult<()> {
         let connection = self.connect()?;
 
         connection.execute(
             r#"
-            INSERT INTO runs (id, recipe_name, status, started_at)
-            VALUES (?1, ?2, 'running', ?3)
+            INSERT INTO runs (id, recipe_name, config_json, status, started_at)
+            VALUES (?1, ?2, ?3, 'running', ?4)
             "#,
-            params![run_id, recipe_name, Utc::now().to_rfc3339()],
+            params![
+                run_id,
+                recipe_name,
+                serde_json::to_string(config_json)?,
+                Utc::now().to_rfc3339()
+            ],
         )?;
 
         Ok(())
@@ -282,6 +295,23 @@ impl Database {
                     params![run_id, node_id, timestamp, error],
                 )?;
             }
+            "node_skipped" => {
+                let message = payload
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                connection.execute(
+                    r#"
+                    INSERT INTO run_nodes (run_id, node_id, status, message, completed_at)
+                    VALUES (?1, ?2, 'skipped', ?3, ?4)
+                    ON CONFLICT(run_id, node_id) DO UPDATE SET
+                        status = 'skipped',
+                        message = excluded.message,
+                        completed_at = excluded.completed_at
+                    "#,
+                    params![run_id, node_id, message, timestamp],
+                )?;
+            }
             "run_completed" => {
                 let summary_json = payload.get("summary").map(Value::to_string);
                 connection.execute(
@@ -352,11 +382,12 @@ mod tests {
                 "test",
                 "0.1.0",
                 std::path::Path::new("python/recipes/test_echo"),
+                "{}",
                 r#"{"nodes":[],"edges":[]}"#,
             )
             .expect("recipe should be stored");
         database
-            .insert_run("run-1", "test_echo")
+            .insert_run("run-1", "test_echo", &json!({}))
             .expect("run should insert");
         database
             .persist_event(&json!({
@@ -383,6 +414,53 @@ mod tests {
             .expect("run should exist");
 
         assert_eq!(status, "completed");
+
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_file(wal_path);
+        let _ = fs::remove_file(shm_path);
+    }
+
+    #[test]
+    fn database_persists_skipped_nodes() {
+        let db_path = std::env::temp_dir().join(format!("atlas-weave-{}.db", Uuid::new_v4()));
+        let wal_path = db_path.with_extension("db-wal");
+        let shm_path = db_path.with_extension("db-shm");
+        let database = Database::new(db_path.clone()).expect("database should initialize");
+
+        database.initialize().expect("schema should be created");
+        database
+            .upsert_recipe(
+                "test_pipeline",
+                "test",
+                "0.1.0",
+                std::path::Path::new("python/recipes/test_pipeline"),
+                r#"{"fail_b":{"type":"boolean","default":false}}"#,
+                r#"{"nodes":[],"edges":[]}"#,
+            )
+            .expect("recipe should be stored");
+        database
+            .insert_run("run-2", "test_pipeline", &json!({"fail_b": true}))
+            .expect("run should insert");
+        database
+            .persist_event(&json!({
+                "type": "node_skipped",
+                "run_id": "run-2",
+                "node_id": "validate_agent",
+                "timestamp": "2026-03-16T00:00:10Z",
+                "message": "Skipped because dependency transform_agent failed"
+            }))
+            .expect("node skip should persist");
+
+        let connection = database.connect().expect("database should open");
+        let status: String = connection
+            .query_row(
+                "SELECT status FROM run_nodes WHERE run_id = ?1 AND node_id = ?2",
+                ["run-2", "validate_agent"],
+                |row| row.get(0),
+            )
+            .expect("node should exist");
+
+        assert_eq!(status, "skipped");
 
         let _ = fs::remove_file(db_path);
         let _ = fs::remove_file(wal_path);
