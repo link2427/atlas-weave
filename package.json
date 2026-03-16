@@ -1,0 +1,13 @@
+{
+  "name": "atlas-weave",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "frontend/app"
+  ],
+  "scripts": {
+    "dev:frontend": "npm --workspace frontend/app run dev",
+    "build:frontend": "npm --workspace frontend/app run build",
+    "tauri:dev": "cargo tauri dev --manifest-path apps/atlas-weave-shell/src-tauri/Cargo.toml"
+  }
+}

@@ -1,10 +1,10 @@
-# SwarmForge — Architecture
+# Atlas Weave — Architecture
 
 ## 1. System Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        SwarmForge UI                             │
+│                        Atlas Weave UI                             │
 │                   SvelteKit + TypeScript + Tailwind              │
 │                                                                  │
 │  ┌──────────┐  ┌──────────────┐  ┌───────────┐  ┌───────────┐  │
@@ -142,7 +142,7 @@ Latency target: <50ms from Python emission to UI render.
 
 ---
 
-## 5. SQLite Schema (SwarmForge Internal)
+## 5. SQLite Schema (Atlas Weave Internal)
 
 This database stores run history, logs, and events. It does NOT store recipe output data — each recipe manages its own output database.
 
@@ -215,7 +215,7 @@ CREATE TABLE schedules (
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  SwarmForge                                    [Settings] [?] │
+│  Atlas Weave                                    [Settings] [?] │
 ├────────┬─────────────────────────────────────────────────────┤
 │        │                                                      │
 │ Recipe │              DAG Viewer (main area)                   │
@@ -399,7 +399,7 @@ async def execute(self, ctx: AgentContext) -> AgentResult:
 
 1. On app startup, Rust checks for Python and the virtual environment
 2. If venv missing, prompt user to run setup (or auto-create)
-3. When a run triggers: `python -m swarmforge.runner --recipe {name} --run-id {uuid}`
+3. When a run triggers: `python -m atlas_weave.runner --recipe {name} --run-id {uuid}`
 4. Rust reads stdout line-by-line, parsing JSON events
 5. Rust sends commands via stdin
 6. On process exit, check exit code, mark run completed/failed
@@ -428,4 +428,4 @@ API keys stored in Tauri's encrypted store plugin. Passed to Python sidecar as e
 
 ### 8.5 Recipe Output Databases
 
-Each recipe manages its own SQLite database (path defined in recipe config). SwarmForge reads it in read-only mode for the Data Inspector. The schema is defined by the recipe's `schema.py`, not by SwarmForge.
+Each recipe manages its own SQLite database (path defined in recipe config). Atlas Weave reads it in read-only mode for the Data Inspector. The schema is defined by the recipe's `schema.py`, not by Atlas Weave.

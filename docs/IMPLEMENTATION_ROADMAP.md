@@ -1,4 +1,4 @@
-# SwarmForge — Implementation Roadmap
+# Atlas Weave — Implementation Roadmap
 
 ## Phase 1 — Skeleton
 
@@ -8,14 +8,14 @@ Tauri v2 + SvelteKit app running, Python project structure created, Rust ↔ Pyt
 ### Checklist
 
 - [ ] Create monorepo root with `Cargo.toml` workspace, `package.json`, `.gitignore`
-- [ ] Initialize Tauri v2 app in `apps/swarmforge-shell/`
+- [ ] Initialize Tauri v2 app in `apps/atlas-weave-shell/`
 - [ ] Initialize SvelteKit in `frontend/app/` with TypeScript, adapter-static, TailwindCSS
-- [ ] Configure `tauri.conf.json`: app name "SwarmForge", window size 1400x900
-- [ ] Create `apps/swarmforge-shell/src-tauri/src/db.rs`: SQLite init with schema from ARCHITECTURE.md Section 5
-- [ ] Create Python project in `python/` with `pyproject.toml` and `swarmforge/` package
-- [ ] Implement `swarmforge/events.py`: `EventEmitter` class that writes JSON lines to stdout
-- [ ] Implement `swarmforge/runner.py`: reads `--recipe` and `--run-id` args, imports recipe, emits `run_completed` event (stub — no real execution yet)
-- [ ] Implement `services/sidecar.rs`: spawn Python process (`python -m swarmforge.runner --recipe {name} --run-id {uuid}`), read stdout line-by-line, parse JSON, emit Tauri events
+- [ ] Configure `tauri.conf.json`: app name "Atlas Weave", window size 1400x900
+- [ ] Create `apps/atlas-weave-shell/src-tauri/src/db.rs`: SQLite init with schema from ARCHITECTURE.md Section 5
+- [ ] Create Python project in `python/` with `pyproject.toml` and `atlas_weave/` package
+- [ ] Implement `atlas_weave/events.py`: `EventEmitter` class that writes JSON lines to stdout
+- [ ] Implement `atlas_weave/runner.py`: reads `--recipe` and `--run-id` args, imports recipe, emits `run_completed` event (stub — no real execution yet)
+- [ ] Implement `services/sidecar.rs`: spawn Python process (`python -m atlas_weave.runner --recipe {name} --run-id {uuid}`), read stdout line-by-line, parse JSON, emit Tauri events
 - [ ] Implement `commands/runs.rs`: `start_run` command that triggers sidecar
 - [ ] Create a test recipe (`python/recipes/test_echo/recipe.py`) with one agent that emits 10 log messages with 1-second delays
 - [ ] Create basic frontend: recipe list page, "Start Run" button, raw scrolling log output from Tauri event listener
@@ -33,17 +33,17 @@ Tauri v2 + SvelteKit app running, Python project structure created, Rust ↔ Pyt
 ## Phase 2 — Agent Framework
 
 ### Goal
-The Python `swarmforge` library has a complete agent framework: Agent, Recipe, Tool, AgentContext base classes. The DAG runner topologically sorts and executes agents. A test recipe with 2+ agents demonstrates dependency ordering.
+The Python `atlas_weave` library has a complete agent framework: Agent, Recipe, Tool, AgentContext base classes. The DAG runner topologically sorts and executes agents. A test recipe with 2+ agents demonstrates dependency ordering.
 
 ### Checklist
 
-- [ ] Implement `swarmforge/agent.py`: `Agent` abstract base class with `name`, `description`, `inputs`, `outputs`, `execute(ctx) -> AgentResult`
-- [ ] Implement `swarmforge/agent.py`: `AgentResult` Pydantic model (records_processed, records_created, records_updated, errors, summary)
-- [ ] Implement `swarmforge/context.py`: `AgentContext` with `run_id`, `config`, `db`, `tools`, `emit`
-- [ ] Implement `swarmforge/recipe.py`: `Recipe` base class with `name`, `description`, `version`, `agents`, `edges`, `config_schema`
-- [ ] Implement `swarmforge/tool.py`: `Tool` abstract base class with `name`, `description`, `call(ctx, **kwargs)`
-- [ ] Implement `swarmforge/dag.py`: topological sort of agents from `edges`, detect cycles, determine execution order, identify parallelizable agents
-- [ ] Update `swarmforge/runner.py`: import recipe → build DAG → execute agents in order → emit `node_started`/`node_progress`/`node_completed`/`node_failed` events per agent → emit `run_completed`/`run_failed`
+- [ ] Implement `atlas_weave/agent.py`: `Agent` abstract base class with `name`, `description`, `inputs`, `outputs`, `execute(ctx) -> AgentResult`
+- [ ] Implement `atlas_weave/agent.py`: `AgentResult` Pydantic model (records_processed, records_created, records_updated, errors, summary)
+- [ ] Implement `atlas_weave/context.py`: `AgentContext` with `run_id`, `config`, `db`, `tools`, `emit`
+- [ ] Implement `atlas_weave/recipe.py`: `Recipe` base class with `name`, `description`, `version`, `agents`, `edges`, `config_schema`
+- [ ] Implement `atlas_weave/tool.py`: `Tool` abstract base class with `name`, `description`, `call(ctx, **kwargs)`
+- [ ] Implement `atlas_weave/dag.py`: topological sort of agents from `edges`, detect cycles, determine execution order, identify parallelizable agents
+- [ ] Update `atlas_weave/runner.py`: import recipe → build DAG → execute agents in order → emit `node_started`/`node_progress`/`node_completed`/`node_failed` events per agent → emit `run_completed`/`run_failed`
 - [ ] Handle agent failures: if agent fails, mark downstream dependents as `skipped`
 - [ ] Create test recipe with 3 agents: A → B → C, where A produces data, B transforms it, C validates it
 - [ ] Verify: agents execute in correct order, events stream to Rust, failures propagate correctly
@@ -204,7 +204,7 @@ The first real recipe: the Cosmotrak satellite enrichment pipeline. 4 agents, pu
 - [ ] Verify Cosmotrak API can read the output DB
 
 ### Acceptance Criteria
-1. Full pipeline runs to completion in the SwarmForge UI
+1. Full pipeline runs to completion in the Atlas Weave UI
 2. DAG shows all 4 agents executing with real progress
 3. Output SQLite has 10,000+ satellite records
 4. ≥80% of records have operator + purpose populated

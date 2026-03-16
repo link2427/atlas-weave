@@ -1,9 +1,9 @@
-# SwarmForge — Repository Structure
+# Atlas Weave — Repository Structure
 
 ## 1. Monorepo Layout
 
 ```
-swarmforge/
+atlas_weave/
 ├── Cargo.toml                              # Rust workspace
 ├── package.json                            # Root package.json for workspace scripts
 ├── README.md
@@ -19,7 +19,7 @@ swarmforge/
 │   └── IMPLEMENTATION_ROADMAP.md
 │
 ├── apps/
-│   └── swarmforge-shell/                   # Tauri v2 application
+│   └── atlas-weave-shell/                   # Tauri v2 application
 │       ├── src-tauri/
 │       │   ├── Cargo.toml
 │       │   ├── tauri.conf.json
@@ -118,7 +118,7 @@ swarmforge/
 │
 ├── python/
 │   ├── pyproject.toml                      # Python package config (deps: langchain, anthropic, httpx, pydantic, etc.)
-│   ├── swarmforge/                         # Core framework library
+│   ├── atlas_weave/                         # Core framework library
 │   │   ├── __init__.py                     # Exports: Agent, Recipe, Tool, AgentContext, AgentResult
 │   │   ├── agent.py                        # Agent base class, AgentResult
 │   │   ├── recipe.py                       # Recipe base class (name, agents, edges, config_schema)
@@ -163,7 +163,7 @@ swarmforge/
 [workspace]
 resolver = "2"
 members = [
-    "apps/swarmforge-shell/src-tauri",
+    "apps/atlas-weave-shell/src-tauri",
 ]
 
 [workspace.dependencies]
@@ -183,7 +183,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 
 ```toml
 [project]
-name = "swarmforge"
+name = "atlas_weave"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
@@ -201,7 +201,7 @@ dependencies = [
 dev = ["pytest", "pytest-asyncio", "ruff"]
 
 [project.scripts]
-swarmforge-runner = "swarmforge.runner:main"
+atlas-weave-runner = "atlas_weave.runner:main"
 ```
 
 ---
@@ -212,14 +212,14 @@ swarmforge-runner = "swarmforge.runner:main"
 |--------------|-------------|
 | Define a new recipe | `python/recipes/{recipe_name}/recipe.py` |
 | Add a new agent to a recipe | `python/recipes/{recipe_name}/agents/{agent_name}.py` |
-| Add a new built-in tool | `python/swarmforge/tools/{tool_name}.py` |
-| Add a new Tauri command | `apps/swarmforge-shell/src-tauri/src/commands/` |
+| Add a new built-in tool | `python/atlas_weave/tools/{tool_name}.py` |
+| Add a new Tauri command | `apps/atlas-weave-shell/src-tauri/src/commands/` |
 | Add a new UI feature | `frontend/app/src/lib/features/{feature}/` |
 | Add a new Tauri event listener | `frontend/app/src/lib/stores/events.ts` |
-| Handle Python subprocess comms | `apps/swarmforge-shell/src-tauri/src/services/sidecar.rs` |
-| Persist run history | `apps/swarmforge-shell/src-tauri/src/db.rs` |
+| Handle Python subprocess comms | `apps/atlas-weave-shell/src-tauri/src/services/sidecar.rs` |
+| Persist run history | `apps/atlas-weave-shell/src-tauri/src/db.rs` |
 | Define recipe output schema | `python/recipes/{recipe_name}/schema.py` |
-| Query recipe output data for UI | `apps/swarmforge-shell/src-tauri/src/commands/data.rs` (read-only) |
+| Query recipe output data for UI | `apps/atlas-weave-shell/src-tauri/src/commands/data.rs` (read-only) |
 
 ---
 

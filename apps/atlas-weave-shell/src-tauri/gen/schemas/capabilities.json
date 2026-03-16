@@ -1,0 +1,1 @@
+{"main":{"identifier":"main","description":"Main Atlas Weave desktop capability","local":true,"windows":["main"],"permissions":["core:default","core:event:allow-listen","core:event:allow-unlisten"]}}

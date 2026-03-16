@@ -1,12 +1,12 @@
-# SwarmForge — Project Context
+# Atlas Weave — Project Context
 
-## 1. What Is SwarmForge
+## 1. What Is Atlas Weave
 
-SwarmForge is a **desktop agent swarm orchestrator** with a real-time execution visualizer. You define multi-agent research and data pipelines as Python code, and SwarmForge provides the runtime, scheduling, data layer, and a polished UI that lets you watch your agents work through a live DAG visualization.
+Atlas Weave is a **desktop agent swarm orchestrator** with a real-time execution visualizer. You define multi-agent research and data pipelines as Python code, and Atlas Weave provides the runtime, scheduling, data layer, and a polished UI that lets you watch your agents work through a live DAG visualization.
 
 Think of it as a local-first Airflow for LLM-powered agent pipelines, with a UI that actually shows you what's happening in real time — nodes lighting up, logs streaming, data flowing between agents, progress bars filling.
 
-The satellite enrichment pipeline for Cosmotrak is the first recipe built on SwarmForge, but the framework is generic. Any multi-step research, data collection, or enrichment workflow can be defined as a SwarmForge recipe.
+The satellite enrichment pipeline for Cosmotrak is the first recipe built on Atlas Weave, but the framework is generic. Any multi-step research, data collection, or enrichment workflow can be defined as a Atlas Weave recipe.
 
 ---
 
@@ -90,7 +90,7 @@ Latency target: <50ms from Python event emission to UI render.
 
 1. **Code-first, UI for monitoring.** Recipes are Python code. The UI is an operations dashboard for launching, monitoring, and inspecting — not a no-code visual builder.
 2. **Framework handles instrumentation.** Built-in tools (HttpTool, LLMTool, WebSearchTool) automatically emit events. You don't manually instrument your agents — every HTTP request, every LLM call, every web scrape shows up in the UI with timing and cost.
-3. **Recipes are self-contained.** A recipe is a Python package with no dependency on the Rust shell or the UI. You can run a recipe from the command line without SwarmForge for testing.
+3. **Recipes are self-contained.** A recipe is a Python package with no dependency on the Rust shell or the UI. You can run a recipe from the command line without Atlas Weave for testing.
 4. **Runs are reproducible.** Every run's config, events, and output are persisted. You can load any historical run and see exactly what happened.
 5. **Local-first.** All data stays on your machine. API keys are stored in Tauri's encrypted store. No cloud dependency for the orchestration layer.
 
@@ -99,7 +99,7 @@ Latency target: <50ms from Python event emission to UI render.
 ## 7. Non-Goals for V1
 
 - Visual recipe builder / no-code editor
-- Cloud deployment of the SwarmForge app itself
+- Cloud deployment of the Atlas Weave app itself
 - Multi-user collaboration
 - Recipe marketplace or sharing
 - Mobile support
@@ -110,7 +110,7 @@ Latency target: <50ms from Python event emission to UI render.
 
 ## 8. First Recipe: Satellite Enrichment
 
-The first recipe built on SwarmForge is the Cosmotrak satellite enrichment pipeline. It has 4 agents:
+The first recipe built on Atlas Weave is the Cosmotrak satellite enrichment pipeline. It has 4 agents:
 
 1. **StructuredDataCollector** — fetches from Space-Track SATCAT, Space-Track GP, CelesTrak, ESA DISCOS
 2. **RecordMerger** — cross-references all sources by NORAD ID, merges fields with priority ordering
