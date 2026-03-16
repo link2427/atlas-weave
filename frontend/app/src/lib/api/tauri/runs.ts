@@ -30,6 +30,21 @@ export type RunNode = {
   error?: string | null;
 };
 
+export type RunGraphNode = {
+  id: string;
+  label: string;
+  description: string;
+  kind: 'static' | 'runtime' | string;
+  parentId?: string | null;
+  groupKey?: string | null;
+  collapsedByDefault?: boolean;
+};
+
+export type RunGraph = {
+  nodes: RunGraphNode[];
+  edges: [string, string][];
+};
+
 export type RunDetail = {
   id: string;
   recipeName: string;
@@ -40,6 +55,7 @@ export type RunDetail = {
   summary?: Record<string, unknown> | null;
   error?: string | null;
   nodes: RunNode[];
+  graph: RunGraph;
 };
 
 export type RunHistoryItem = {

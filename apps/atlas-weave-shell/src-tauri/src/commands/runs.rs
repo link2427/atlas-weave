@@ -46,6 +46,25 @@ pub struct RunNodeDto {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RunGraphNodeDto {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub kind: String,
+    pub parent_id: Option<String>,
+    pub group_key: Option<String>,
+    pub collapsed_by_default: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunGraphDto {
+    pub nodes: Vec<RunGraphNodeDto>,
+    pub edges: Vec<[String; 2]>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RunDetailDto {
     pub id: String,
     pub recipe_name: String,
@@ -56,6 +75,7 @@ pub struct RunDetailDto {
     pub summary: Option<Value>,
     pub error: Option<String>,
     pub nodes: Vec<RunNodeDto>,
+    pub graph: RunGraphDto,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -165,6 +185,11 @@ pub fn get_run(state: State<'_, AppState>, run_id: String) -> AppResult<RunDetai
         .database
         .get_run(&run_id)?
         .ok_or_else(|| AppError::Message(format!("run not found: {run_id}")))?;
+    let recipe = state
+        .database
+        .get_recipe_detail(&run.recipe_name)?
+        .ok_or_else(|| AppError::Message(format!("recipe not found: {}", run.recipe_name)))?;
+    let graph = merge_run_graph(&recipe.dag, &run);
 
     Ok(RunDetailDto {
         id: run.id,
@@ -190,6 +215,7 @@ pub fn get_run(state: State<'_, AppState>, run_id: String) -> AppResult<RunDetai
                 error: node.error,
             })
             .collect(),
+        graph,
     })
 }
 
@@ -357,4 +383,77 @@ fn secret_env_var(key: &str) -> String {
             }
         })
         .collect()
+}
+
+fn merge_run_graph(recipe_dag: &Value, run: &crate::db::RunRecord) -> RunGraphDto {
+    let mut nodes: Vec<RunGraphNodeDto> = recipe_dag
+        .get("nodes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|node| {
+            Some(RunGraphNodeDto {
+                id: node.get("id")?.as_str()?.to_string(),
+                label: node
+                    .get("label")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                description: node
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                kind: "static".to_string(),
+                parent_id: None,
+                group_key: None,
+                collapsed_by_default: false,
+            })
+        })
+        .collect();
+
+    let mut existing_ids = nodes
+        .iter()
+        .map(|node| node.id.clone())
+        .collect::<std::collections::HashSet<_>>();
+
+    for node in &run.graph_nodes {
+        if existing_ids.insert(node.id.clone()) {
+            nodes.push(RunGraphNodeDto {
+                id: node.id.clone(),
+                label: node.label.clone(),
+                description: node.description.clone(),
+                kind: node.kind.clone(),
+                parent_id: node.parent_id.clone(),
+                group_key: node.group_key.clone(),
+                collapsed_by_default: node.collapsed_by_default,
+            });
+        }
+    }
+
+    let mut edges: Vec<[String; 2]> = recipe_dag
+        .get("edges")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|edge| {
+            let pair = edge.as_array()?;
+            Some([
+                pair.first()?.as_str()?.to_string(),
+                pair.get(1)?.as_str()?.to_string(),
+            ])
+        })
+        .collect();
+
+    let mut seen_edges = edges
+        .iter()
+        .map(|pair| (pair[0].clone(), pair[1].clone()))
+        .collect::<std::collections::HashSet<_>>();
+    for edge in &run.graph_edges {
+        if seen_edges.insert((edge.source.clone(), edge.target.clone())) {
+            edges.push([edge.source.clone(), edge.target.clone()]);
+        }
+    }
+
+    RunGraphDto { nodes, edges }
 }

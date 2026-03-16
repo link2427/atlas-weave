@@ -71,6 +71,10 @@
     return JSON.stringify(value ?? {}, null, 2);
   }
 
+  function compact(value: unknown): string {
+    return JSON.stringify(value ?? {}, null, 2);
+  }
+
   function subtitle(group: ToolGroup): string {
     if (group.result?.error) {
       return group.result.error;
@@ -92,6 +96,18 @@
     const completion = group.result.completion_tokens ?? 0;
     const cost = group.result.estimated_cost_usd ?? 0;
     return `${prompt} in / ${completion} out, $${cost.toFixed(4)}`;
+  }
+
+  function providerAttempts(group: ToolGroup): unknown[] {
+    const output = group.result?.output as Record<string, unknown> | undefined;
+    const attempts = output?.provider_attempts;
+    return Array.isArray(attempts) ? attempts : [];
+  }
+
+  function failures(group: ToolGroup): unknown[] {
+    const output = group.result?.output as Record<string, unknown> | undefined;
+    const value = output?.failures;
+    return Array.isArray(value) ? value : [];
   }
 </script>
 
@@ -127,6 +143,23 @@
             <pre>{pretty(group.result?.output ?? {})}</pre>
           </div>
         </div>
+
+        {#if providerAttempts(group).length > 0 || failures(group).length > 0}
+          <div class="payload-grid diagnostics">
+            {#if providerAttempts(group).length > 0}
+              <div class="payload-card">
+                <p class="eyebrow">Provider Attempts</p>
+                <pre>{compact(providerAttempts(group))}</pre>
+              </div>
+            {/if}
+            {#if failures(group).length > 0}
+              <div class="payload-card warning">
+                <p class="eyebrow">Failures</p>
+                <pre>{compact(failures(group))}</pre>
+              </div>
+            {/if}
+          </div>
+        {/if}
       </details>
     {/each}
   </div>
@@ -235,6 +268,15 @@
     border: 1px solid rgba(255, 255, 255, 0.06);
     background: rgba(15, 23, 42, 0.72);
     padding: 0.9rem;
+  }
+
+  .payload-card.warning {
+    border-color: rgba(251, 113, 133, 0.24);
+    background: rgba(62, 14, 30, 0.42);
+  }
+
+  .diagnostics {
+    margin-top: 1rem;
   }
 
   pre {

@@ -5,6 +5,7 @@ mod services;
 use std::sync::Arc;
 
 use commands::{
+    files::pick_csv_file,
     recipes::{get_recipe_detail, list_recipes},
     runs::{cancel_run, get_run, get_run_events, get_run_history, start_run},
     settings::{get_credentials, save_credentials},
@@ -101,6 +102,7 @@ pub fn run() {
             get_run_events,
             get_run_history,
             cancel_run,
+            pick_csv_file,
             get_credentials,
             save_credentials
         ])

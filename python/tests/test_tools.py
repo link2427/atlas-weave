@@ -127,6 +127,30 @@ async def test_web_search_tool_caches_results(monkeypatch: pytest.MonkeyPatch, t
 
 
 @pytest.mark.anyio
+async def test_web_search_tool_soft_fails_when_provider_errors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, text="Blocked", request=request)
+
+    monkeypatch.setenv("ATLAS_WEAVE_DATA_DIR", str(tmp_path))
+    http_tool = HttpTool(
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    )
+    search_tool = WebSearchTool(http_tool=http_tool)
+    ctx, stream = make_context()
+
+    result = await search_tool.call(ctx, query="blocked query", max_results=2)
+    events = read_events(stream)
+    search_result = next(event for event in events if event["type"] == "tool_result" and event["tool"] == "web_search")
+
+    assert result["results"] == []
+    assert result["provider_attempts"][0]["provider"] == "duckduckgo"
+    assert result["provider_attempts"][0]["status"] == "error"
+    assert result["failures"][0]["provider"] == "duckduckgo"
+    assert search_result["output"]["result_count"] == 0
+    assert search_result["output"]["failures"][0]["provider"] == "duckduckgo"
+
+
+@pytest.mark.anyio
 async def test_web_scrape_tool_extracts_title_and_text() -> None:
     html = """
     <html>

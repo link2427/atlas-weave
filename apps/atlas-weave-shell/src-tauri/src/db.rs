@@ -42,6 +42,8 @@ pub struct RunRecord {
     pub summary: Option<Value>,
     pub error: Option<String>,
     pub nodes: Vec<RunNodeRecord>,
+    pub graph_nodes: Vec<RunGraphNodeRecord>,
+    pub graph_edges: Vec<RunGraphEdgeRecord>,
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +57,23 @@ pub struct RunNodeRecord {
     pub duration_ms: Option<i64>,
     pub summary: Option<Value>,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RunGraphNodeRecord {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub kind: String,
+    pub parent_id: Option<String>,
+    pub group_key: Option<String>,
+    pub collapsed_by_default: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct RunGraphEdgeRecord {
+    pub source: String,
+    pub target: String,
 }
 
 #[derive(Debug, Clone)]
@@ -149,6 +168,26 @@ impl Database {
             );
             CREATE INDEX IF NOT EXISTS idx_events_run ON run_events(run_id);
             CREATE INDEX IF NOT EXISTS idx_events_run_node ON run_events(run_id, node_id);
+
+            CREATE TABLE IF NOT EXISTS run_graph_nodes (
+                run_id               TEXT NOT NULL REFERENCES runs(id),
+                node_id              TEXT NOT NULL,
+                label                TEXT NOT NULL,
+                description          TEXT,
+                kind                 TEXT NOT NULL DEFAULT 'runtime',
+                parent_id            TEXT,
+                group_key            TEXT,
+                collapsed_by_default INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (run_id, node_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS run_graph_edges (
+                run_id    TEXT NOT NULL REFERENCES runs(id),
+                source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                PRIMARY KEY (run_id, source_id, target_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_run_graph_edges_run_id ON run_graph_edges(run_id);
 
             CREATE TABLE IF NOT EXISTS schedules (
                 id              TEXT PRIMARY KEY,
@@ -458,6 +497,93 @@ impl Database {
                     params![run_id, timestamp, json!({ "message": message }).to_string()],
                 )?;
             }
+            "graph_patch" => {
+                if let Some(nodes) = payload.get("nodes").and_then(Value::as_array) {
+                    for node in nodes {
+                        let Some(node_id) = node.get("id").and_then(Value::as_str) else {
+                            continue;
+                        };
+                        let label = node
+                            .get("label")
+                            .and_then(Value::as_str)
+                            .unwrap_or(node_id);
+                        let description = node
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default();
+                        let kind = node
+                            .get("kind")
+                            .and_then(Value::as_str)
+                            .unwrap_or("runtime");
+                        let parent_id = node
+                            .get("parent_id")
+                            .and_then(Value::as_str)
+                            .map(ToString::to_string);
+                        let group_key = node
+                            .get("group_key")
+                            .and_then(Value::as_str)
+                            .map(ToString::to_string);
+                        let collapsed_by_default = node
+                            .get("collapsed_by_default")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false);
+
+                        connection.execute(
+                            r#"
+                            INSERT INTO run_graph_nodes (
+                                run_id,
+                                node_id,
+                                label,
+                                description,
+                                kind,
+                                parent_id,
+                                group_key,
+                                collapsed_by_default
+                            )
+                            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                            ON CONFLICT(run_id, node_id) DO UPDATE SET
+                                label = excluded.label,
+                                description = excluded.description,
+                                kind = excluded.kind,
+                                parent_id = excluded.parent_id,
+                                group_key = excluded.group_key,
+                                collapsed_by_default = excluded.collapsed_by_default
+                            "#,
+                            params![
+                                run_id,
+                                node_id,
+                                label,
+                                description,
+                                kind,
+                                parent_id,
+                                group_key,
+                                collapsed_by_default
+                            ],
+                        )?;
+                    }
+                }
+
+                if let Some(edges) = payload.get("edges").and_then(Value::as_array) {
+                    for edge in edges {
+                        let Some(pair) = edge.as_array() else {
+                            continue;
+                        };
+                        let Some(source) = pair.first().and_then(Value::as_str) else {
+                            continue;
+                        };
+                        let Some(target) = pair.get(1).and_then(Value::as_str) else {
+                            continue;
+                        };
+                        connection.execute(
+                            r#"
+                            INSERT OR IGNORE INTO run_graph_edges (run_id, source_id, target_id)
+                            VALUES (?1, ?2, ?3)
+                            "#,
+                            params![run_id, source, target],
+                        )?;
+                    }
+                }
+            }
             _ => {}
         }
 
@@ -513,6 +639,8 @@ impl Database {
                             })?,
                         error: row.get(7)?,
                         nodes: Vec::new(),
+                        graph_nodes: Vec::new(),
+                        graph_edges: Vec::new(),
                     })
                 },
             )
@@ -560,6 +688,50 @@ impl Database {
         })?;
 
         run_record.nodes = rows.collect::<Result<Vec<_>, _>>()?;
+
+        let mut graph_nodes_statement = connection.prepare(
+            r#"
+            SELECT
+                node_id,
+                label,
+                COALESCE(description, ''),
+                kind,
+                parent_id,
+                group_key,
+                collapsed_by_default
+            FROM run_graph_nodes
+            WHERE run_id = ?1
+            ORDER BY node_id ASC
+            "#,
+        )?;
+        let graph_nodes = graph_nodes_statement.query_map([run_id], |row| {
+            Ok(RunGraphNodeRecord {
+                id: row.get(0)?,
+                label: row.get(1)?,
+                description: row.get(2)?,
+                kind: row.get(3)?,
+                parent_id: row.get(4)?,
+                group_key: row.get(5)?,
+                collapsed_by_default: row.get(6)?,
+            })
+        })?;
+        run_record.graph_nodes = graph_nodes.collect::<Result<Vec<_>, _>>()?;
+
+        let mut graph_edges_statement = connection.prepare(
+            r#"
+            SELECT source_id, target_id
+            FROM run_graph_edges
+            WHERE run_id = ?1
+            ORDER BY source_id ASC, target_id ASC
+            "#,
+        )?;
+        let graph_edges = graph_edges_statement.query_map([run_id], |row| {
+            Ok(RunGraphEdgeRecord {
+                source: row.get(0)?,
+                target: row.get(1)?,
+            })
+        })?;
+        run_record.graph_edges = graph_edges.collect::<Result<Vec<_>, _>>()?;
         Ok(run)
     }
 

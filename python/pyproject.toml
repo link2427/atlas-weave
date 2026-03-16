@@ -27,3 +27,8 @@ package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
 where = ["."]
+
+[tool.pytest.ini_options]
+markers = [
+    "external: live network-backed integration tests for real provider credentials",
+]

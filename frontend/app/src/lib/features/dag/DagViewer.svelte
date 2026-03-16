@@ -11,7 +11,7 @@
   export let selectedNodeId: string | null = null;
 
   const dispatch = createEventDispatcher<{ select: { nodeId: string } }>();
-  const padding = 88;
+  const padding = 56;
 
   let container: HTMLDivElement | null = null;
   let viewport = { x: 0, y: 0, scale: 1 };
@@ -58,7 +58,7 @@
     const height = container.clientHeight;
     const scaleX = (width - padding * 2) / Math.max(layout.width, 1);
     const scaleY = (height - padding * 2) / Math.max(layout.height, 1);
-    const scale = Math.max(0.48, Math.min(Math.min(scaleX, scaleY), 1.24));
+    const scale = Math.max(0.14, Math.min(Math.min(scaleX, scaleY), 1.3));
 
     viewport = {
       scale,
@@ -68,7 +68,7 @@
   }
 
   function clampScale(value: number): number {
-    return Math.min(1.9, Math.max(0.42, value));
+    return Math.min(2.2, Math.max(0.06, value));
   }
 
   function handleWheel(event: WheelEvent): void {
@@ -80,7 +80,7 @@
     const rect = container.getBoundingClientRect();
     const pointX = event.clientX - rect.left;
     const pointY = event.clientY - rect.top;
-    const delta = event.deltaY < 0 ? 1.08 : 0.92;
+    const delta = event.deltaY < 0 ? 1.12 : 0.88;
     const nextScale = clampScale(viewport.scale * delta);
     const ratio = nextScale / viewport.scale;
 
@@ -172,7 +172,7 @@
   .dag-shell {
     display: flex;
     height: 100%;
-    min-height: 520px;
+    min-height: 600px;
     flex-direction: column;
   }
 

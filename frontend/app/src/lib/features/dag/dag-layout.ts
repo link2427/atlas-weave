@@ -2,8 +2,8 @@ import dagre from '@dagrejs/dagre';
 
 import type { DagEdgeState, DagNodeState } from '$lib/stores/dag';
 
-export const DAG_NODE_WIDTH = 150;
-export const DAG_NODE_HEIGHT = 150;
+export const DAG_NODE_WIDTH = 112;
+export const DAG_NODE_HEIGHT = 112;
 
 export type DagLayoutNode = DagNodeState & {
   x: number;
@@ -39,10 +39,10 @@ export function buildDagLayout(
   const graph = new dagre.graphlib.Graph();
   graph.setGraph({
     rankdir: direction,
-    nodesep: 72,
-    ranksep: 116,
-    marginx: 56,
-    marginy: 56
+    nodesep: 40,
+    ranksep: 76,
+    marginx: 40,
+    marginy: 40
   });
   graph.setDefaultEdgeLabel(() => ({}));
 

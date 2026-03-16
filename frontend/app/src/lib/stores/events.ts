@@ -6,6 +6,8 @@ export type AtlasWeaveEvent = {
   type: string;
   run_id: string;
   node_id?: string;
+  nodes?: Array<Record<string, unknown>>;
+  edges?: Array<[string, string]>;
   tool?: string;
   provider?: string;
   model?: string;
@@ -19,6 +21,8 @@ export type AtlasWeaveEvent = {
   input?: unknown;
   output?: unknown;
   cache_hit?: boolean;
+  failures?: unknown;
+  provider_attempts?: unknown;
   prompt_tokens?: number;
   completion_tokens?: number;
   estimated_cost_usd?: number;

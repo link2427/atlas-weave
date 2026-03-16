@@ -7,7 +7,7 @@
   export let selected = false;
 
   const dispatch = createEventDispatcher<{ select: { nodeId: string } }>();
-  const radius = 54;
+  const radius = 36;
   const circumference = 2 * Math.PI * radius;
 
   $: progress = Math.max(0, Math.min(node.progress ?? 0, 1));
@@ -60,8 +60,8 @@
 >
   <title>{tooltip}</title>
 
-  <circle r="64" fill="rgba(8, 15, 30, 0.72)" stroke="rgba(255, 255, 255, 0.06)" stroke-width="2" />
-  <circle r="58" fill={fillByStatus[node.status]} stroke={selected ? '#7dd3fc' : 'rgba(255, 255, 255, 0.08)'} stroke-width={selected ? 3 : 2} />
+  <circle r="44" fill="rgba(8, 15, 30, 0.72)" stroke="rgba(255, 255, 255, 0.06)" stroke-width="2" />
+  <circle r="40" fill={fillByStatus[node.status]} stroke={selected ? '#7dd3fc' : 'rgba(255, 255, 255, 0.08)'} stroke-width={selected ? 3 : 2} />
   <circle r={radius} fill="none" stroke="rgba(255, 255, 255, 0.08)" stroke-width="6" />
   <circle
     class="progress-ring"
@@ -81,7 +81,7 @@
     {/each}
   </text>
 
-  <text y="42" text-anchor="middle" fill="rgba(226, 232, 240, 0.72)" class="pointer-events-none text-[11px] uppercase tracking-[0.24em]">
+  <text y="29" text-anchor="middle" fill="rgba(226, 232, 240, 0.72)" class="pointer-events-none text-[9px] uppercase tracking-[0.18em]">
     {Math.round(progress * 100)}%
   </text>
 </g>
@@ -92,13 +92,13 @@
   }
 
   .dag-node.running {
-    filter: drop-shadow(0 0 18px rgba(45, 212, 191, 0.24));
+    filter: drop-shadow(0 0 14px rgba(45, 212, 191, 0.24));
   }
 
   .dag-node:hover,
   .dag-node.selected {
     opacity: 0.98;
-    filter: drop-shadow(0 0 18px rgba(125, 211, 252, 0.18));
+    filter: drop-shadow(0 0 14px rgba(125, 211, 252, 0.18));
   }
 
   .dag-node.completed {
@@ -114,7 +114,7 @@
   }
 
   .label-line {
-    font-size: 15px;
+    font-size: 11px;
     font-weight: 600;
   }
 

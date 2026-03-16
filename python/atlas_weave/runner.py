@@ -281,6 +281,7 @@ async def run_recipe(
                 "skipped_nodes": sum(1 for status in status_by_node.values() if status == "skipped"),
                 "cancelled_nodes": sum(1 for status in status_by_node.values() if status == "cancelled"),
                 "node_summaries": summary_by_node,
+                **dict(state.get("_run_summary", {})),
                 **metrics.summary(),
             }
         )

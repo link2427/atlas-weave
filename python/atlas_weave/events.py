@@ -58,6 +58,18 @@ class EventEmitter:
     def node_cancelled(self, node_id: str, message: str) -> None:
         self.emit("node_cancelled", node_id=node_id, message=message)
 
+    def graph_patch(
+        self,
+        nodes: list[dict[str, Any]] | None = None,
+        edges: list[tuple[str, str]] | list[list[str]] | None = None,
+    ) -> None:
+        payload: dict[str, Any] = {}
+        if nodes:
+            payload["nodes"] = nodes
+        if edges:
+            payload["edges"] = [[source, target] for source, target in edges]
+        self.emit("graph_patch", **payload)
+
     def tool_call(
         self,
         node_id: str,

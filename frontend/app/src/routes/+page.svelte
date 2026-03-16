@@ -4,7 +4,7 @@
 
   import { getCredentials } from '$lib/api/tauri/settings';
   import { getRecipeDetail, listRecipes, type Recipe, type RecipeConfigField, type RecipeDetail } from '$lib/api/tauri/recipes';
-  import { startRun } from '$lib/api/tauri/runs';
+  import { getRunHistory, startRun, type RunHistoryItem } from '$lib/api/tauri/runs';
   import RunConfig from '$lib/features/run/RunConfig.svelte';
 
   let recipes: Recipe[] = [];
@@ -14,7 +14,9 @@
   let credentialPresence: Record<string, { present: boolean }> = {};
   let loadingRecipes = true;
   let loadingRecipeDetail = false;
+  let loadingRunHistory = false;
   let startingRun = false;
+  let recentRuns: RunHistoryItem[] = [];
   let errorMessage = '';
 
   onMount(() => {
@@ -50,12 +52,27 @@
         .filter(([, field]) => field.secret)
         .map(([key]) => key);
       credentialPresence = secretKeys.length > 0 ? await getCredentials(secretKeys) : {};
+      await loadRecentRuns(recipeName);
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : 'Failed to load recipe details.';
       selectedRecipeDetail = null;
       credentialPresence = {};
+      recentRuns = [];
     } finally {
       loadingRecipeDetail = false;
+    }
+  }
+
+  async function loadRecentRuns(recipeName: string): Promise<void> {
+    loadingRunHistory = true;
+    try {
+      const response = await getRunHistory(recipeName, 1, 5);
+      recentRuns = response.items;
+    } catch (error) {
+      recentRuns = [];
+      console.error('Failed to load run history', error);
+    } finally {
+      loadingRunHistory = false;
     }
   }
 
@@ -120,6 +137,10 @@
       startingRun = false;
     }
   }
+
+  async function openRun(runId: string): Promise<void> {
+    await goto(`/run/${runId}`);
+  }
 </script>
 
 <svelte:head>
@@ -166,6 +187,57 @@
               </div>
             </button>
           {/each}
+        {/if}
+      </div>
+
+      <div class="mt-8 border-t border-white/10 pt-6">
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <div>
+            <p class="text-xs uppercase tracking-[0.35em] text-sea">Existing Runs</p>
+            <p class="mt-2 text-sm text-slate-300">
+              Reopen a recent run for the selected recipe.
+            </p>
+          </div>
+
+          {#if recentRuns[0]}
+            <button
+              class="rounded-full border border-sky-300/35 bg-sky-400/10 px-3 py-2 text-xs font-medium text-sky-200"
+              on:click={() => openRun(recentRuns[0].id)}
+            >
+              Open Latest
+            </button>
+          {/if}
+        </div>
+
+        {#if loadingRunHistory}
+          <div class="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-300">
+            Loading recent runs...
+          </div>
+        {:else if recentRuns.length === 0}
+          <div class="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-slate-300">
+            No recorded runs for this recipe yet.
+          </div>
+        {:else}
+          <div class="space-y-3">
+            {#each recentRuns as run}
+              <button
+                class="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left transition hover:border-sky-300/40 hover:bg-white/10"
+                on:click={() => openRun(run.id)}
+              >
+                <div class="flex items-center justify-between gap-3">
+                  <div class="min-w-0">
+                    <p class="truncate text-sm font-medium capitalize text-mist">{run.status}</p>
+                    <p class="mt-1 truncate text-xs text-slate-400">
+                      {run.startedAt ? new Date(run.startedAt).toLocaleString() : 'Unknown start'}
+                    </p>
+                  </div>
+                  <span class="rounded-full bg-white/10 px-2 py-1 text-[11px] text-slate-300">
+                    {run.completedNodes + run.failedNodes + run.skippedNodes + run.cancelledNodes + run.runningNodes + run.pendingNodes}
+                  </span>
+                </div>
+              </button>
+            {/each}
+          </div>
         {/if}
       </div>
     </aside>

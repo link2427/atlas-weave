@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
 
+  import { pickCsvFile } from '$lib/api/tauri/files';
   import type { RecipeConfigField, RecipeDetail } from '$lib/api/tauri/recipes';
 
   export let recipe: RecipeDetail | null = null;
@@ -13,6 +14,7 @@
     change: { key: string; value: string | number | boolean };
     submit: undefined;
   }>();
+  let pickingKey: string | null = null;
 
   $: fields = Object.entries(recipe?.configSchema ?? {}) as Array<[string, RecipeConfigField]>;
 
@@ -33,6 +35,22 @@
       value = target.value === '' ? '' : Number(target.value);
     }
     dispatch('change', { key, value });
+  }
+
+  function isCsvPathField(key: string, field: RecipeConfigField): boolean {
+    return !field.secret && field.type === 'string' && key === 'ucs_catalog_csv_path';
+  }
+
+  async function handlePickCsvFile(key: string): Promise<void> {
+    pickingKey = key;
+    try {
+      const selected = await pickCsvFile();
+      if (selected) {
+        dispatch('change', { key, value: selected });
+      }
+    } finally {
+      pickingKey = null;
+    }
   }
 </script>
 
@@ -76,6 +94,23 @@
 
           {#if field.secret}
             <a class="settings-link" href="/settings">Manage this credential in Settings</a>
+          {:else if isCsvPathField(key, field)}
+            <div class="picker-row">
+              <input
+                type="text"
+                value={String(valueFor(key, field))}
+                on:input={(event) => handleValueChange(key, field, event)}
+                placeholder="Select a CSV file or paste a path"
+              />
+              <button
+                type="button"
+                class="picker-button"
+                disabled={pickingKey === key}
+                on:click={() => handlePickCsvFile(key)}
+              >
+                {pickingKey === key ? 'Choosing...' : 'Choose CSV'}
+              </button>
+            </div>
           {:else if field.type === 'boolean'}
             <input
               type="checkbox"
@@ -181,6 +216,32 @@
     background: rgba(15, 23, 42, 0.92);
     padding: 0.8rem 0.9rem;
     color: #f8fafc;
+  }
+
+  .picker-row {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .picker-button {
+    border-radius: 9999px;
+    border: 1px solid rgba(125, 211, 252, 0.25);
+    background: rgba(14, 116, 144, 0.24);
+    padding: 0.75rem 1rem;
+    color: #bae6fd;
+    font-weight: 600;
+  }
+
+  .picker-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+  }
+
+  @media (min-width: 768px) {
+    .picker-row {
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+    }
   }
 
   input[type='checkbox'] {

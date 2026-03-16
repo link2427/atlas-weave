@@ -1,7 +1,7 @@
 import { writable } from 'svelte/store';
 
-import type { RecipeDagNode, RecipeDetail } from '$lib/api/tauri/recipes';
-import type { RunDetail, RunNode, RunStatus } from '$lib/api/tauri/runs';
+import type { RecipeDetail } from '$lib/api/tauri/recipes';
+import type { RunDetail, RunGraphNode, RunNode, RunStatus } from '$lib/api/tauri/runs';
 import type { AtlasWeaveEvent } from '$lib/stores/events';
 
 export type DagNodeStatus = RunStatus;
@@ -14,7 +14,7 @@ export type DagEdgeVisualState =
   | 'cancelled'
   | 'flowing';
 
-export type DagNodeState = RecipeDagNode & {
+export type DagNodeState = RunGraphNode & {
   status: DagNodeStatus;
   progress: number;
   message: string | null;
@@ -59,7 +59,7 @@ function edgeId(source: string, target: string): string {
   return `${source}->${target}`;
 }
 
-function baseNodeState(node: RecipeDagNode): DagNodeState {
+function baseNodeState(node: RunGraphNode): DagNodeState {
   return {
     ...node,
     status: 'pending',
@@ -258,10 +258,10 @@ function createDagStore() {
       clearEdgeTimers();
 
       const snapshotByNodeId = new Map(run.nodes.map((node) => [node.nodeId, node]));
-      const nodes = recipe.dag.nodes.map((node) =>
+      const nodes = run.graph.nodes.map((node) =>
         applyRunSnapshot(baseNodeState(node), snapshotByNodeId.get(node.id))
       );
-      const edges = recipe.dag.edges.map(([source, target]) => ({
+      const edges = run.graph.edges.map(([source, target]) => ({
         id: edgeId(source, target),
         source,
         target,
@@ -304,9 +304,16 @@ function createDagStore() {
             event.type === 'run_failed'
               ? (event.error ?? state.runError)
               : state.runError,
-          nodes: state.nodes.map((node) =>
-            node.id === event.node_id ? nextNodeState(node, event) : node
-          )
+          nodes:
+            event.type === 'graph_patch'
+              ? mergeRuntimeNodes(state.nodes, event.nodes ?? [])
+              : state.nodes.map((node) =>
+                  node.id === event.node_id ? nextNodeState(node, event) : node
+                ),
+          edges:
+            event.type === 'graph_patch'
+              ? mergeRuntimeEdges(state.edges, event.edges ?? [])
+              : state.edges
         };
 
         if (event.type === 'node_completed' && event.node_id) {
@@ -331,3 +338,48 @@ function createDagStore() {
 }
 
 export const dagStore = createDagStore();
+
+function mergeRuntimeNodes(
+  currentNodes: DagNodeState[],
+  payloadNodes: Array<Record<string, unknown>>
+): DagNodeState[] {
+  const byId = new Map(currentNodes.map((node) => [node.id, node]));
+  for (const payload of payloadNodes) {
+    const id = typeof payload.id === 'string' ? payload.id : null;
+    if (!id) {
+      continue;
+    }
+    const existing = byId.get(id);
+    const base: RunGraphNode = {
+      id,
+      label: typeof payload.label === 'string' ? payload.label : id,
+      description: typeof payload.description === 'string' ? payload.description : '',
+      kind: typeof payload.kind === 'string' ? payload.kind : 'runtime',
+      parentId: typeof payload.parent_id === 'string' ? payload.parent_id : null,
+      groupKey: typeof payload.group_key === 'string' ? payload.group_key : null,
+      collapsedByDefault: Boolean(payload.collapsed_by_default)
+    };
+    byId.set(id, existing ? { ...existing, ...base } : baseNodeState(base));
+  }
+  return Array.from(byId.values());
+}
+
+function mergeRuntimeEdges(
+  currentEdges: DagEdgeState[],
+  payloadEdges: Array<[string, string]>
+): DagEdgeState[] {
+  const byId = new Map(currentEdges.map((edge) => [edge.id, edge]));
+  for (const [source, target] of payloadEdges) {
+    const id = edgeId(source, target);
+    if (!byId.has(id)) {
+      byId.set(id, {
+        id,
+        source,
+        target,
+        state: 'idle',
+        pulsing: false
+      });
+    }
+  }
+  return Array.from(byId.values());
+}

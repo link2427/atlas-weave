@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -26,7 +27,7 @@ class SearchResult:
 
 class WebSearchTool(Tool):
     name = "web_search"
-    description = "Run a DuckDuckGo HTML search with a local 7-day cache."
+    description = "Run a cached provider-fallback web search that never hard-fails the caller."
 
     def __init__(self, http_tool: HttpTool) -> None:
         self.http_tool = http_tool
@@ -55,24 +56,47 @@ class WebSearchTool(Tool):
             )
 
         async def operation() -> dict[str, Any]:
-            response = await self.http_tool.call(
-                ctx,
-                method="GET",
-                url="https://html.duckduckgo.com/html/",
-                params={"q": query},
-                headers={"User-Agent": "AtlasWeave/0.1"},
-            )
-            results = _parse_results(response.text or "", max_results)
+            provider_attempts: list[dict[str, Any]] = []
+            failures: list[dict[str, str]] = []
+            results: list[dict[str, Any]] = []
+
+            for provider in _provider_order(ctx):
+                try:
+                    provider_results = await _search_with_provider(
+                        provider=provider,
+                        http_tool=self.http_tool,
+                        ctx=ctx,
+                        query=query,
+                        max_results=max_results,
+                    )
+                except Exception as error:  # noqa: BLE001
+                    failures.append({"provider": provider, "error": str(error)})
+                    provider_attempts.append(
+                        {
+                            "provider": provider,
+                            "status": "error",
+                            "result_count": 0,
+                            "error": str(error),
+                        }
+                    )
+                    continue
+
+                provider_attempts.append(
+                    {
+                        "provider": provider,
+                        "status": "ok" if provider_results else "empty",
+                        "result_count": len(provider_results),
+                    }
+                )
+                if provider_results:
+                    results = provider_results[:max_results]
+                    break
+
             payload = {
                 "query": query,
-                "results": [
-                    {
-                        "title": result.title,
-                        "url": result.url,
-                        "snippet": result.snippet,
-                    }
-                    for result in results
-                ],
+                "results": results,
+                "provider_attempts": provider_attempts,
+                "failures": failures,
             }
             _write_cache(cache_key, payload)
             return payload
@@ -92,7 +116,115 @@ async def _return_value(value: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
-def _parse_results(html: str, max_results: int) -> list[SearchResult]:
+def _provider_order(ctx: AgentContext) -> list[str]:
+    providers: list[str] = []
+    if os.getenv("BRAVE_SEARCH_API_KEY"):
+        providers.append("brave")
+    searxng_base_url = str(ctx.config.get("searxng_base_url", "") or "").strip()
+    if searxng_base_url:
+        providers.append("searxng")
+    providers.append("duckduckgo")
+    return providers
+
+
+async def _search_with_provider(
+    *,
+    provider: str,
+    http_tool: HttpTool,
+    ctx: AgentContext,
+    query: str,
+    max_results: int,
+) -> list[dict[str, Any]]:
+    if provider == "brave":
+        response = await http_tool.call(
+            ctx,
+            method="GET",
+            url="https://api.search.brave.com/res/v1/web/search",
+            headers={
+                "Accept": "application/json",
+                "X-Subscription-Token": os.getenv("BRAVE_SEARCH_API_KEY", ""),
+                "User-Agent": "AtlasWeave/0.1",
+            },
+            params={"q": query, "count": max_results},
+        )
+        payload = response.json_body or {}
+        return _parse_brave_results(payload, max_results)
+
+    if provider == "searxng":
+        base_url = str(ctx.config.get("searxng_base_url", "") or "").rstrip("/")
+        headers = {"Accept": "application/json", "User-Agent": "AtlasWeave/0.1"}
+        api_key = os.getenv("SEARXNG_API_KEY")
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        response = await http_tool.call(
+            ctx,
+            method="GET",
+            url=f"{base_url}/search",
+            headers=headers,
+            params={"q": query, "format": "json"},
+        )
+        payload = response.json_body or {}
+        return _parse_searxng_results(payload, max_results)
+
+    response = await http_tool.call(
+        ctx,
+        method="GET",
+        url="https://html.duckduckgo.com/html/",
+        params={"q": query},
+        headers={"User-Agent": "AtlasWeave/0.1"},
+    )
+    return [
+        {"title": result.title, "url": result.url, "snippet": result.snippet}
+        for result in _parse_duckduckgo_results(response.text or "", max_results)
+    ]
+
+
+def _parse_brave_results(payload: dict[str, Any], max_results: int) -> list[dict[str, Any]]:
+    web = payload.get("web")
+    rows = web.get("results") if isinstance(web, dict) else []
+    results: list[dict[str, Any]] = []
+    if not isinstance(rows, list):
+        return results
+    for row in rows[:max_results]:
+        if not isinstance(row, dict):
+            continue
+        url = row.get("url")
+        title = row.get("title")
+        if not isinstance(url, str) or not isinstance(title, str):
+            continue
+        results.append(
+            {
+                "title": title.strip(),
+                "url": url.strip(),
+                "snippet": str(row.get("description") or "").strip(),
+            }
+        )
+    return results
+
+
+def _parse_searxng_results(payload: dict[str, Any], max_results: int) -> list[dict[str, Any]]:
+    rows = payload.get("results")
+    results: list[dict[str, Any]] = []
+    if not isinstance(rows, list):
+        return results
+    for row in rows[:max_results]:
+        if not isinstance(row, dict):
+            continue
+        url = row.get("url")
+        title = row.get("title")
+        if not isinstance(url, str) or not isinstance(title, str):
+            continue
+        results.append(
+            {
+                "title": title.strip(),
+                "url": url.strip(),
+                "snippet": str(row.get("content") or row.get("snippet") or "").strip(),
+            }
+        )
+    return results
+
+
+def _parse_duckduckgo_results(html: str, max_results: int) -> list[SearchResult]:
     soup = BeautifulSoup(html, "html.parser")
     results: list[SearchResult] = []
 
@@ -119,6 +251,8 @@ def _search_result_payload(result: dict[str, Any]) -> dict[str, Any]:
         "query": result["query"],
         "result_count": len(result["results"]),
         "results": result["results"],
+        "provider_attempts": result.get("provider_attempts", []),
+        "failures": result.get("failures", []),
     }
 
 
