@@ -12,7 +12,7 @@
   }
 
   function formatTime(value: string | null): string {
-    return value ? new Date(value).toLocaleString() : '—';
+    return value ? new Date(value).toLocaleString() : '-';
   }
 </script>
 
@@ -52,7 +52,7 @@
         {#if node.durationMs !== null}
           {node.durationMs} ms
         {:else}
-          —
+          -
         {/if}
       </p>
     </div>
@@ -133,6 +133,11 @@
   .status-badge.skipped {
     background: rgba(251, 191, 36, 0.18);
     color: #fde68a;
+  }
+
+  .status-badge.cancelled {
+    background: rgba(249, 115, 22, 0.18);
+    color: #fdba74;
   }
 
   .progress-rail {

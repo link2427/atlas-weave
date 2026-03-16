@@ -1,39 +1,44 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { page } from '$app/stores';
   import { onDestroy, onMount } from 'svelte';
 
+  import { getRecipeDetail } from '$lib/api/tauri/recipes';
+  import { cancelRun, getRun, getRunEvents, getRunHistory, type RunDetail, type RunHistoryItem } from '$lib/api/tauri/runs';
   import DagViewer from '$lib/features/dag/DagViewer.svelte';
   import NodeDetail from '$lib/features/dag/NodeDetail.svelte';
   import RunLogViewer from '$lib/features/dag/RunLogViewer.svelte';
-  import { getRecipeDetail } from '$lib/api/tauri/recipes';
-  import { getRun, getRunEvents } from '$lib/api/tauri/runs';
+  import RunList from '$lib/features/run/RunList.svelte';
+  import RunSummary from '$lib/features/run/RunSummary.svelte';
   import { dagStore } from '$lib/stores/dag';
   import {
     eventStore,
     normalizeRunStatus,
-    type AtlasWeaveEvent,
-    type RunViewStatus
+    type AtlasWeaveEvent
   } from '$lib/stores/events';
 
+  const EVENT_PAGE_SIZE = 200;
+
   let loading = true;
+  let loadingHistory = false;
+  let loadingOlderEvents = false;
   let loadError = '';
   let mounted = false;
   let requestedRunId = '';
   let unlisten: UnlistenFn | null = null;
-  let runStartedAt: string | null = null;
-  let runCompletedAt: string | null = null;
+  let runDetail: RunDetail | null = null;
+  let historyItems: RunHistoryItem[] = [];
+  let cancelling = false;
 
   $: dagState = $dagStore;
   $: eventState = $eventStore;
   $: routeRunId = $page.params.id;
-  $: latestRunTerminalEvent =
-    [...eventState.events].reverse().find((event) => event.type === 'run_completed' || event.type === 'run_failed') ??
-    null;
   $: selectedNode = dagState.nodes.find((node) => node.id === dagState.selectedNodeId) ?? null;
   $: selectedNodeEvents = selectedNode
     ? eventState.events.filter((event) => event.node_id === selectedNode.id)
     : [];
+  $: canLoadOlder = eventState.events.length < eventState.total;
   $: if (mounted && routeRunId && routeRunId !== requestedRunId) {
     requestedRunId = routeRunId;
     void initializeRun(routeRunId);
@@ -51,29 +56,69 @@
     cleanupListener();
     dagStore.clear();
     eventStore.clear();
-    runStartedAt = null;
-    runCompletedAt = null;
+    runDetail = null;
+    historyItems = [];
+    cancelling = false;
     loading = true;
     loadError = '';
 
     try {
       const run = await getRun(runId);
-      const [recipe, rawEvents] = await Promise.all([getRecipeDetail(run.recipeName), getRunEvents(runId)]);
-      const events = rawEvents.map(asAtlasWeaveEvent).filter((event) => event.run_id === runId);
+      const [recipe, eventPage] = await Promise.all([
+        getRecipeDetail(run.recipeName),
+        getRunEvents(runId, undefined, 1, EVENT_PAGE_SIZE)
+      ]);
+      const events = eventPage.items.map(asAtlasWeaveEvent).reverse();
 
+      runDetail = run;
       dagStore.hydrate(recipe, run);
-      eventStore.setRun(run.id, normalizeRunStatus(run.status), events);
-      runStartedAt = run.startedAt ?? null;
-      runCompletedAt = run.completedAt ?? null;
-      await attachListener(runId);
+      eventStore.setRun(
+        run.id,
+        normalizeRunStatus(run.status),
+        events,
+        eventPage.total,
+        eventPage.page,
+        eventPage.pageSize
+      );
+      void loadHistory(run.recipeName);
+
+      if (run.status === 'running') {
+        await attachListener(runId);
+      }
     } catch (error) {
       dagStore.clear();
       eventStore.clear();
-      runStartedAt = null;
-      runCompletedAt = null;
+      runDetail = null;
       loadError = error instanceof Error ? error.message : 'Failed to load this run.';
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadHistory(recipeName: string): Promise<void> {
+    loadingHistory = true;
+    try {
+      const history = await getRunHistory(recipeName, 1, 20);
+      historyItems = history.items;
+    } catch (error) {
+      loadError = error instanceof Error ? error.message : 'Failed to load run history.';
+    } finally {
+      loadingHistory = false;
+    }
+  }
+
+  async function loadOlderEvents(): Promise<void> {
+    if (!runDetail || loadingOlderEvents || !canLoadOlder) {
+      return;
+    }
+
+    loadingOlderEvents = true;
+    try {
+      const nextPage = eventState.page + 1;
+      const response = await getRunEvents(runDetail.id, undefined, nextPage, eventState.pageSize || EVENT_PAGE_SIZE);
+      eventStore.prependPage(response.items.map(asAtlasWeaveEvent).reverse(), response.page, response.total, response.pageSize);
+    } finally {
+      loadingOlderEvents = false;
     }
   }
 
@@ -86,7 +131,23 @@
 
       eventStore.push(event.payload);
       dagStore.applyEvent(event.payload);
+
+      if (
+        event.payload.type === 'run_completed' ||
+        event.payload.type === 'run_failed' ||
+        event.payload.type === 'run_cancelled'
+      ) {
+        void refreshRun(runId);
+      }
     });
+  }
+
+  async function refreshRun(runId: string): Promise<void> {
+    runDetail = await getRun(runId);
+    if (runDetail.status !== 'running') {
+      cleanupListener();
+      cancelling = false;
+    }
   }
 
   function cleanupListener(): void {
@@ -100,8 +161,21 @@
     cleanupListener();
     dagStore.clear();
     eventStore.clear();
-    runStartedAt = null;
-    runCompletedAt = null;
+    runDetail = null;
+  }
+
+  async function handleCancel(): Promise<void> {
+    if (!runDetail || cancelling) {
+      return;
+    }
+
+    cancelling = true;
+    try {
+      await cancelRun(runDetail.id);
+    } catch (error) {
+      loadError = error instanceof Error ? error.message : 'Failed to cancel run.';
+      cancelling = false;
+    }
   }
 
   function asAtlasWeaveEvent(payload: Record<string, unknown>): AtlasWeaveEvent {
@@ -109,15 +183,18 @@
   }
 
   function formatTime(value?: string | null): string {
-    return value ? new Date(value).toLocaleString() : '—';
+    return value ? new Date(value).toLocaleString() : '-';
   }
 
-  function statusClasses(status: RunViewStatus | null): string {
+  function statusClasses(status: string | null): string {
     if (status === 'completed') {
       return 'status completed';
     }
     if (status === 'failed') {
       return 'status failed';
+    }
+    if (status === 'cancelled') {
+      return 'status cancelled';
     }
     return 'status running';
   }
@@ -145,15 +222,17 @@
         <div class="grid gap-3 text-sm text-slate-300 md:grid-cols-3">
           <div class="stat-card">
             <p class="eyebrow">Status</p>
-            <p class={statusClasses(eventState.status)}>{eventState.status}</p>
+            <p class={statusClasses(eventState.status !== 'idle' ? eventState.status : runDetail?.status ?? null)}>
+              {eventState.status !== 'idle' ? eventState.status : runDetail?.status}
+            </p>
           </div>
           <div class="stat-card">
             <p class="eyebrow">Started</p>
-            <p class="stat-value">{formatTime(runStartedAt)}</p>
+            <p class="stat-value">{formatTime(runDetail?.startedAt)}</p>
           </div>
           <div class="stat-card">
             <p class="eyebrow">Completed</p>
-            <p class="stat-value">{formatTime(latestRunTerminalEvent?.timestamp ?? runCompletedAt)}</p>
+            <p class="stat-value">{formatTime(runDetail?.completedAt)}</p>
           </div>
         </div>
       </div>
@@ -167,13 +246,32 @@
           <a class="mt-4 inline-flex text-sm text-rose-50 underline" href="/">Back to recipes</a>
         </div>
       {:else}
-        <div class="mt-6 rounded-[30px] border border-white/10 bg-white/4 p-4">
-          <DagViewer
-            nodes={dagState.nodes}
-            edges={dagState.edges}
-            selectedNodeId={dagState.selectedNodeId}
-            on:select={(event) => dagStore.selectNode(event.detail.nodeId)}
+        <div class="mt-6 grid gap-6 xl:grid-cols-[290px,1fr]">
+          <RunList
+            recipeName={runDetail?.recipeName ?? ''}
+            activeRunId={routeRunId}
+            items={historyItems}
+            loading={loadingHistory}
+            on:select={(event) => goto(`/run/${event.detail.runId}`)}
           />
+
+          <div class="space-y-6">
+            <RunSummary
+              run={runDetail}
+              status={eventState.status !== 'idle' ? eventState.status : runDetail?.status ?? 'idle'}
+              {cancelling}
+              on:cancel={handleCancel}
+            />
+
+            <div class="rounded-[30px] border border-white/10 bg-white/4 p-4">
+              <DagViewer
+                nodes={dagState.nodes}
+                edges={dagState.edges}
+                selectedNodeId={dagState.selectedNodeId}
+                on:select={(event) => dagStore.selectNode(event.detail.nodeId)}
+              />
+            </div>
+          </div>
         </div>
       {/if}
     </section>
@@ -181,7 +279,13 @@
     {#if !loading && !loadError}
       <section class="grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
         <NodeDetail node={selectedNode} events={selectedNodeEvents} />
-        <RunLogViewer events={eventState.events} />
+        <RunLogViewer
+          events={eventState.events}
+          total={eventState.total}
+          canLoadOlder={canLoadOlder}
+          loadingOlder={loadingOlderEvents}
+          on:loadOlder={loadOlderEvents}
+        />
       </section>
     {/if}
   </div>
@@ -219,6 +323,10 @@
 
   .status.failed {
     color: #fecdd3;
+  }
+
+  .status.cancelled {
+    color: #fde68a;
   }
 
   .stat-value {

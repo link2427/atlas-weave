@@ -12,6 +12,7 @@ class EchoAgent(Agent):
 
     async def execute(self, ctx: AgentContext) -> AgentResult:
         for index in range(10):
+            ctx.raise_if_cancelled()
             step = index + 1
             ctx.emit.log(self.name, "info", f"Echo message {step}/10")
             ctx.emit.progress(self.name, step / 10, f"Processed echo step {step} of 10")

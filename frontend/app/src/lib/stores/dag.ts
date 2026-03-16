@@ -5,7 +5,14 @@ import type { RunDetail, RunNode, RunStatus } from '$lib/api/tauri/runs';
 import type { AtlasWeaveEvent } from '$lib/stores/events';
 
 export type DagNodeStatus = RunStatus;
-export type DagEdgeVisualState = 'idle' | 'active' | 'completed' | 'failed' | 'skipped' | 'flowing';
+export type DagEdgeVisualState =
+  | 'idle'
+  | 'active'
+  | 'completed'
+  | 'failed'
+  | 'skipped'
+  | 'cancelled'
+  | 'flowing';
 
 export type DagNodeState = RecipeDagNode & {
   status: DagNodeStatus;
@@ -85,6 +92,9 @@ function computeEdgeState(
   }
   if (sourceStatus === 'failed' || targetStatus === 'failed') {
     return 'failed';
+  }
+  if (sourceStatus === 'cancelled' || targetStatus === 'cancelled') {
+    return 'cancelled';
   }
   if (sourceStatus === 'skipped' || targetStatus === 'skipped') {
     return 'skipped';
@@ -175,6 +185,13 @@ function nextNodeState(node: DagNodeState, event: AtlasWeaveEvent): DagNodeState
       return {
         ...node,
         status: 'skipped',
+        message: event.message ?? node.message,
+        completedAt: event.timestamp ?? node.completedAt
+      };
+    case 'node_cancelled':
+      return {
+        ...node,
+        status: 'cancelled',
         message: event.message ?? node.message,
         completedAt: event.timestamp ?? node.completedAt
       };
@@ -280,8 +297,13 @@ function createDagStore() {
               ? 'completed'
               : event.type === 'run_failed'
                 ? 'failed'
+                : event.type === 'run_cancelled'
+                  ? 'cancelled'
                 : state.runStatus,
-          runError: event.type === 'run_failed' ? (event.error ?? state.runError) : state.runError,
+          runError:
+            event.type === 'run_failed'
+              ? (event.error ?? state.runError)
+              : state.runError,
           nodes: state.nodes.map((node) =>
             node.id === event.node_id ? nextNodeState(node, event) : node
           )

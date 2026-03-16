@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
 
-export type RunViewStatus = 'idle' | 'running' | 'completed' | 'failed';
+export type RunViewStatus = 'idle' | 'running' | 'completed' | 'failed' | 'cancelled';
 
 export type AtlasWeaveEvent = {
   type: string;
@@ -19,12 +19,18 @@ type EventState = {
   activeRunId: string | null;
   status: RunViewStatus;
   events: AtlasWeaveEvent[];
+  total: number;
+  page: number;
+  pageSize: number;
 };
 
 const initialState: EventState = {
   activeRunId: null,
   status: 'idle',
-  events: []
+  events: [],
+  total: 0,
+  page: 1,
+  pageSize: 0
 };
 
 function createEventStore() {
@@ -35,12 +41,31 @@ function createEventStore() {
     clear() {
       set(initialState);
     },
-    setRun(runId: string, status: RunViewStatus, events: AtlasWeaveEvent[] = []) {
+    setRun(
+      runId: string,
+      status: RunViewStatus,
+      events: AtlasWeaveEvent[] = [],
+      total = events.length,
+      page = 1,
+      pageSize = events.length
+    ) {
       set({
         activeRunId: runId,
         status,
-        events
+        events,
+        total,
+        page,
+        pageSize
       });
+    },
+    prependPage(events: AtlasWeaveEvent[], page: number, total: number, pageSize: number) {
+      update((state) => ({
+        ...state,
+        events: [...events, ...state.events],
+        page,
+        total,
+        pageSize
+      }));
     },
     push(event: AtlasWeaveEvent) {
       update((state) => {
@@ -53,11 +78,14 @@ function createEventStore() {
             ? 'completed'
             : event.type === 'run_failed'
               ? 'failed'
-              : state.status;
+              : event.type === 'run_cancelled'
+                ? 'cancelled'
+                : state.status;
 
         return {
           ...state,
           status,
+          total: Math.max(state.total, state.events.length + 1),
           events: [...state.events, event]
         };
       });
@@ -73,6 +101,9 @@ export function normalizeRunStatus(status: string): RunViewStatus {
   }
   if (status === 'failed') {
     return 'failed';
+  }
+  if (status === 'cancelled') {
+    return 'cancelled';
   }
   return 'running';
 }

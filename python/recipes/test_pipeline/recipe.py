@@ -12,6 +12,7 @@ class SourceAgent(Agent):
     outputs = ["source_records"]
 
     async def execute(self, ctx: AgentContext) -> AgentResult:
+        ctx.raise_if_cancelled()
         records = [1, 2, 3]
         ctx.state[self.name] = {"records": records}
         ctx.emit.log(self.name, "info", "Generated source records")
@@ -30,9 +31,11 @@ class TransformAgent(Agent):
     outputs = ["transformed_records"]
 
     async def execute(self, ctx: AgentContext) -> AgentResult:
+        ctx.raise_if_cancelled()
         source_records = ctx.state["source_agent"]["records"]
         ctx.emit.progress(self.name, 0.5, "Loaded source records")
         await asyncio.sleep(0.05)
+        ctx.raise_if_cancelled()
 
         if bool(ctx.config.get("fail_b", False)):
             raise RuntimeError("forced transform failure via fail_b")
@@ -55,6 +58,7 @@ class ValidateAgent(Agent):
     inputs = ["transformed_records"]
 
     async def execute(self, ctx: AgentContext) -> AgentResult:
+        ctx.raise_if_cancelled()
         transformed_records = ctx.state["transform_agent"]["records"]
         is_valid = all(value % 2 == 0 for value in transformed_records)
         ctx.emit.log(self.name, "info", "Validated transformed records")

@@ -5,10 +5,11 @@ import asyncio
 import importlib
 import json
 import sys
+from dataclasses import dataclass
 from time import perf_counter
 from typing import Any
 
-from atlas_weave.context import AgentContext
+from atlas_weave.context import AgentContext, CancellationToken, RunCancelledError
 from atlas_weave.dag import DagPlan, build_execution_plan
 from atlas_weave.events import EventEmitter
 from atlas_weave.recipe import Recipe
@@ -72,6 +73,26 @@ def _collect_descendants(root: str, plan: DagPlan) -> list[str]:
     return descendants
 
 
+@dataclass(slots=True)
+class AgentOutcome:
+    node_id: str
+    status: str
+    summary: dict[str, Any] | None = None
+    error: str | None = None
+
+
+async def _listen_for_cancel(run_id: str, token: CancellationToken) -> None:
+    while True:
+        line = await asyncio.to_thread(sys.stdin.readline)
+        if not line:
+            return
+
+        command = json.loads(line)
+        if command.get("type") == "cancel_run" and command.get("run_id") == run_id:
+            token.cancel("Run cancelled from Atlas Weave")
+            return
+
+
 async def _execute_agent(
     recipe: Recipe,
     agent_name: str,
@@ -80,7 +101,8 @@ async def _execute_agent(
     state: dict[str, Any],
     tools: ToolRegistry,
     emitter: EventEmitter,
-) -> tuple[str, dict[str, Any] | None, str | None]:
+    cancellation: CancellationToken,
+) -> AgentOutcome:
     agent_type = recipe.agent_type_map()[agent_name]
     agent = agent_type()
     context = AgentContext(
@@ -89,83 +111,151 @@ async def _execute_agent(
         db=None,
         tools=tools,
         emit=emitter,
+        cancellation=cancellation,
         state=state,
     )
+    context.raise_if_cancelled()
     started_at = perf_counter()
     emitter.node_started(agent_name)
 
     try:
         result = await agent.execute(context)
+    except RunCancelledError as error:
+        emitter.node_cancelled(agent_name, str(error))
+        return AgentOutcome(node_id=agent_name, status="cancelled", error=str(error))
     except Exception as error:  # noqa: BLE001
         emitter.node_failed(agent_name, str(error))
-        return agent_name, None, str(error)
+        return AgentOutcome(node_id=agent_name, status="failed", error=str(error))
 
     duration_ms = int((perf_counter() - started_at) * 1000)
     summary = result.model_dump(mode="json")
     emitter.node_completed(agent_name, duration_ms=duration_ms, summary=summary)
-    return agent_name, summary, None
+    return AgentOutcome(node_id=agent_name, status="completed", summary=summary)
 
 
-async def run_recipe(recipe_name: str, run_id: str, config: dict[str, Any]) -> None:
+def _mark_skipped(
+    roots: list[str],
+    plan: DagPlan,
+    status_by_node: dict[str, str],
+    emitter: EventEmitter,
+    message_factory: Any,
+) -> None:
+    for root in roots:
+        for skipped_node in _collect_descendants(root, plan):
+            if status_by_node[skipped_node] != "pending":
+                continue
+            status_by_node[skipped_node] = "skipped"
+            emitter.node_skipped(skipped_node, message=str(message_factory(root)))
+
+
+async def run_recipe(
+    recipe_name: str,
+    run_id: str,
+    config: dict[str, Any],
+    protocol_mode: bool = False,
+) -> None:
     recipe = _load_recipe(recipe_name)
     plan = build_execution_plan(recipe)
     emitter = EventEmitter(run_id=run_id)
     tools = ToolRegistry()
     state: dict[str, Any] = {}
+    cancellation = CancellationToken()
+    cancel_task: asyncio.Task[None] | None = None
     status_by_node = {name: "pending" for name in recipe.agent_type_map()}
     summary_by_node: dict[str, dict[str, Any]] = {}
     failure_messages: dict[str, str] = {}
 
-    for level in plan.levels:
-        runnable = [name for name in level if status_by_node[name] == "pending"]
-        if not runnable:
-            continue
+    if protocol_mode:
+        cancel_task = asyncio.create_task(_listen_for_cancel(run_id, cancellation))
 
-        outcomes = await asyncio.gather(
-            *[
-                _execute_agent(recipe, agent_name, run_id, config, state, tools, emitter)
-                for agent_name in runnable
-            ]
-        )
+    try:
+        for level in plan.levels:
+            if cancellation.cancelled:
+                pending_nodes = [name for name, status in status_by_node.items() if status == "pending"]
+                for node_id in pending_nodes:
+                    status_by_node[node_id] = "skipped"
+                    emitter.node_skipped(node_id, message=cancellation.message)
+                emitter.run_cancelled(cancellation.message)
+                return
 
-        failed_nodes: list[str] = []
-        for agent_name, summary, error in outcomes:
-            if error is None and summary is not None:
-                status_by_node[agent_name] = "completed"
-                summary_by_node[agent_name] = summary
-            else:
-                status_by_node[agent_name] = "failed"
-                failure_messages[agent_name] = error or "agent failed"
-                failed_nodes.append(agent_name)
+            runnable = [name for name in level if status_by_node[name] == "pending"]
+            if not runnable:
+                continue
 
-        for failed_node in failed_nodes:
-            for skipped_node in _collect_descendants(failed_node, plan):
-                if status_by_node[skipped_node] != "pending":
-                    continue
-                status_by_node[skipped_node] = "skipped"
-                emitter.node_skipped(
-                    skipped_node,
-                    message=f"Skipped because dependency {failed_node} failed",
-                )
-
-        if failed_nodes:
-            emitter.run_failed(
-                " ; ".join(
-                    f"{node}: {failure_messages[node]}"
-                    for node in sorted(failure_messages.keys())
-                )
+            outcomes = await asyncio.gather(
+                *[
+                    _execute_agent(
+                        recipe,
+                        agent_name,
+                        run_id,
+                        config,
+                        state,
+                        tools,
+                        emitter,
+                        cancellation,
+                    )
+                    for agent_name in runnable
+                ]
             )
-            return
 
-    emitter.run_completed(
-        {
-            "recipe": recipe.name,
-            "completed_nodes": sum(1 for status in status_by_node.values() if status == "completed"),
-            "failed_nodes": sum(1 for status in status_by_node.values() if status == "failed"),
-            "skipped_nodes": sum(1 for status in status_by_node.values() if status == "skipped"),
-            "node_summaries": summary_by_node,
-        }
-    )
+            failed_nodes: list[str] = []
+            cancelled_nodes: list[str] = []
+            for outcome in outcomes:
+                if outcome.status == "completed" and outcome.summary is not None:
+                    status_by_node[outcome.node_id] = "completed"
+                    summary_by_node[outcome.node_id] = outcome.summary
+                elif outcome.status == "failed":
+                    status_by_node[outcome.node_id] = "failed"
+                    failure_messages[outcome.node_id] = outcome.error or "agent failed"
+                    failed_nodes.append(outcome.node_id)
+                elif outcome.status == "cancelled":
+                    status_by_node[outcome.node_id] = "cancelled"
+                    cancelled_nodes.append(outcome.node_id)
+
+            if failed_nodes:
+                _mark_skipped(
+                    failed_nodes,
+                    plan,
+                    status_by_node,
+                    emitter,
+                    lambda root: f"Skipped because dependency {root} failed",
+                )
+                emitter.run_failed(
+                    " ; ".join(
+                        f"{node}: {failure_messages[node]}"
+                        for node in sorted(failure_messages.keys())
+                    )
+                )
+                return
+
+            if cancelled_nodes or cancellation.cancelled:
+                _mark_skipped(
+                    cancelled_nodes or runnable,
+                    plan,
+                    status_by_node,
+                    emitter,
+                    lambda _root: cancellation.message,
+                )
+                emitter.run_cancelled(cancellation.message)
+                return
+
+        emitter.run_completed(
+            {
+                "recipe": recipe.name,
+                "completed_nodes": sum(1 for status in status_by_node.values() if status == "completed"),
+                "failed_nodes": sum(1 for status in status_by_node.values() if status == "failed"),
+                "skipped_nodes": sum(1 for status in status_by_node.values() if status == "skipped"),
+                "cancelled_nodes": sum(1 for status in status_by_node.values() if status == "cancelled"),
+                "node_summaries": summary_by_node,
+            }
+        )
+    finally:
+        if cancel_task is not None:
+            cancel_task.cancel()
+            try:
+                await cancel_task
+            except asyncio.CancelledError:
+                pass
 
 
 def main() -> None:
@@ -184,6 +274,7 @@ def main() -> None:
                 recipe_name=str(command["recipe"]),
                 run_id=str(command["run_id"]),
                 config=dict(command.get("config", {})),
+                protocol_mode=not (args.recipe and args.run_id),
             )
         )
     except Exception as error:  # noqa: BLE001

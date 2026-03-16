@@ -22,7 +22,8 @@
     running: '#0f3b39',
     completed: '#123f52',
     failed: '#4a1320',
-    skipped: '#40321d'
+    skipped: '#40321d',
+    cancelled: '#4a2a11'
   } as const;
 
   const ringByStatus = {
@@ -30,7 +31,8 @@
     running: '#2dd4bf',
     completed: '#38bdf8',
     failed: '#fb7185',
-    skipped: '#fbbf24'
+    skipped: '#fbbf24',
+    cancelled: '#fb923c'
   } as const;
 
   function handleSelect(): void {

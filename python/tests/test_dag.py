@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
@@ -60,3 +61,21 @@ def test_describe_recipe_returns_real_metadata() -> None:
         ["transform_agent", "validate_agent"],
     ]
     assert metadata["config_schema"]["fail_b"]["default"] is False
+
+
+def test_run_recipe_protocol_cancel_emits_cancel_events(capsys, monkeypatch) -> None:
+    stdin_lines = iter([json.dumps({"type": "cancel_run", "run_id": "run-cancel"}) + "\n", ""])
+    monkeypatch.setattr("sys.stdin.readline", lambda: next(stdin_lines))
+
+    async def run() -> None:
+        task = asyncio.create_task(
+            run_recipe("test_echo", "run-cancel", {}, protocol_mode=True)
+        )
+        await asyncio.sleep(0.15)
+        await task
+
+    asyncio.run(run())
+    events = [line for line in capsys.readouterr().out.splitlines() if line]
+
+    assert any('"type":"node_cancelled"' in event for event in events)
+    assert any('"type":"run_cancelled"' in event for event in events)

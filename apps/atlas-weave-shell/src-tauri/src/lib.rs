@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use commands::{
     recipes::{get_recipe_detail, list_recipes},
-    runs::{get_run, get_run_events, start_run},
+    runs::{cancel_run, get_run, get_run_events, get_run_history, start_run},
+    settings::{get_credentials, save_credentials},
 };
 use db::Database;
 use serde::Serialize;
@@ -16,6 +17,8 @@ use thiserror::Error;
 #[derive(Clone)]
 pub struct AppState {
     pub database: Arc<Database>,
+    pub credentials: Arc<services::credentials::CredentialStore>,
+    pub run_manager: Arc<services::run_manager::RunManager>,
 }
 
 pub type AppResult<T> = Result<T, AppError>;
@@ -51,19 +54,42 @@ impl From<serde_json::Error> for AppError {
     }
 }
 
+impl From<tauri::Error> for AppError {
+    fn from(value: tauri::Error) -> Self {
+        Self::Message(value.to_string())
+    }
+}
+
+impl From<iota_stronghold::ClientError> for AppError {
+    fn from(value: iota_stronghold::ClientError) -> Self {
+        Self::Message(value.to_string())
+    }
+}
+
+impl From<tauri_plugin_stronghold::stronghold::Error> for AppError {
+    fn from(value: tauri_plugin_stronghold::stronghold::Error) -> Self {
+        Self::Message(value.to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let repo_root = services::paths::repo_root()?;
-            let database = Arc::new(Database::new(
-                repo_root.join(".atlas-weave").join("atlas-weave.db"),
-            )?);
+            let data_dir = repo_root.join(".atlas-weave");
+            let database = Arc::new(Database::new(data_dir.join("atlas-weave.db"))?);
+            let credentials = Arc::new(services::credentials::CredentialStore::new(&data_dir)?);
+            let run_manager = Arc::new(services::run_manager::RunManager::default());
 
             database.initialize()?;
             services::recipe_registry::discover_and_seed(&database)?;
 
-            app.manage(AppState { database });
+            app.manage(AppState {
+                database,
+                credentials,
+                run_manager,
+            });
 
             Ok(())
         })
@@ -72,7 +98,11 @@ pub fn run() {
             get_recipe_detail,
             start_run,
             get_run,
-            get_run_events
+            get_run_events,
+            get_run_history,
+            cancel_run,
+            get_credentials,
+            save_credentials
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Atlas Weave application");

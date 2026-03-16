@@ -107,17 +107,17 @@ Full run lifecycle: persist runs to SQLite, browse run history, load historical 
 
 ### Checklist
 
-- [ ] Implement `commands/runs.rs`: `get_run_history` - paginated list of past runs for a recipe
-- [ ] Implement `commands/runs.rs`: `get_run` - full run detail including all node statuses
-- [ ] Implement `commands/runs.rs`: `get_run_events` - paginated events for a run, filterable by node
-- [ ] Implement `commands/runs.rs`: `cancel_run` - sends cancel command to Python via stdin, marks run as cancelled
-- [ ] Implement `services/event_bus.rs`: persist every Python event to `run_events` table, update `run_nodes` status
-- [ ] Create `RunList.svelte`: sidebar showing past runs with status icon, timestamp, quick stats
-- [ ] Click historical run -> load its node states and events into DAG viewer (replay mode)
-- [ ] Create `RunConfig.svelte`: before launching, show config form generated from recipe's `config_schema`
-- [ ] Implement `commands/settings.rs`: `get_credentials`, `save_credentials` - encrypted Tauri store
-- [ ] Create `Credentials.svelte`: API key management (Space-Track, Claude, DISCOS, etc.)
-- [ ] Credential values injected as env vars when Python spawns (never in config JSON)
+- [x] Implement `commands/runs.rs`: `get_run_history` - paginated list of past runs for a recipe
+- [x] Implement `commands/runs.rs`: `get_run` - full run detail including all node statuses
+- [x] Implement `commands/runs.rs`: `get_run_events` - paginated events for a run, filterable by node
+- [x] Implement `commands/runs.rs`: `cancel_run` - sends cancel command to Python via stdin, marks run as cancelled
+- [x] Implement `services/event_bus.rs`: persist every Python event to `run_events` table, update `run_nodes` status
+- [x] Create `RunList.svelte`: sidebar showing past runs with status icon, timestamp, quick stats
+- [x] Click historical run -> load its node states and events into DAG viewer (replay mode)
+- [x] Create `RunConfig.svelte`: before launching, show config form generated from recipe's `config_schema`
+- [x] Implement `commands/settings.rs`: `get_credentials`, `save_credentials` - encrypted Tauri store
+- [x] Create `Credentials.svelte`: API key management (Space-Track, Claude, DISCOS, etc.)
+- [x] Credential values injected as env vars when Python spawns (never in config JSON)
 
 ### Acceptance Criteria
 1. Run history sidebar shows past runs with correct status icons

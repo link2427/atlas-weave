@@ -1,50 +1,57 @@
-use std::process::Stdio;
+use std::{collections::HashMap, process::Stdio, sync::Arc};
 
 use anyhow::{anyhow, Context};
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::Command,
+    sync::Mutex,
 };
 
 use crate::{db::Database, AppResult};
 
-use super::paths;
+use super::{
+    event_bus, paths,
+    run_manager::{ActiveRunHandle, RunManager},
+};
 
 pub async fn spawn_run(
     app: AppHandle,
     database: Database,
+    run_manager: Arc<RunManager>,
     recipe: String,
     run_id: String,
     config: Value,
+    env_vars: HashMap<String, String>,
 ) -> AppResult<()> {
     let repo_root = paths::repo_root()?;
     let python_dir = repo_root.join("python");
-    let config_json = serde_json::to_string(&config)?;
 
     let mut command = Command::new("python");
     command
         .arg("-u")
         .arg("-m")
         .arg("atlas_weave.runner")
-        .arg("--recipe")
-        .arg(&recipe)
-        .arg("--run-id")
-        .arg(&run_id)
-        .arg("--config-json")
-        .arg(config_json)
         .current_dir(&repo_root)
         .env("PYTHONPATH", python_dir.to_string_lossy().to_string())
         .env("PYTHONUNBUFFERED", "1")
-        .stdin(Stdio::null())
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    for (key, value) in env_vars {
+        command.env(key, value);
+    }
 
     let mut child = command
         .spawn()
         .with_context(|| format!("failed to spawn Python runner for recipe {recipe}"))?;
 
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| anyhow!("python runner stdin pipe was not available"))?;
     let stdout = child
         .stdout
         .take()
@@ -53,6 +60,21 @@ pub async fn spawn_run(
         .stderr
         .take()
         .ok_or_else(|| anyhow!("python runner stderr pipe was not available"))?;
+    let child = Arc::new(Mutex::new(child));
+
+    let start_command = serde_json::to_string(&json!({
+        "type": "start_run",
+        "run_id": run_id,
+        "recipe": recipe,
+        "config": config,
+    }))?;
+    stdin.write_all(start_command.as_bytes()).await?;
+    stdin.write_all(b"\n").await?;
+    stdin.flush().await?;
+
+    run_manager
+        .register(run_id.clone(), ActiveRunHandle::new(child.clone(), stdin))
+        .await;
 
     let app_for_stdout = app.clone();
     let database_for_stdout = database.clone();
@@ -67,22 +89,16 @@ pub async fn spawn_run(
 
             match serde_json::from_str::<Value>(&line) {
                 Ok(payload) => {
-                    if let Err(error) = database_for_stdout.persist_event(&payload) {
-                        eprintln!("failed to persist event: {error}");
-                    }
-
-                    if let Err(error) = app_for_stdout.emit("atlas-weave:event", payload) {
-                        eprintln!("failed to emit tauri event: {error}");
-                    }
+                    let _ =
+                        event_bus::publish_payload(&app_for_stdout, &database_for_stdout, payload);
                 }
                 Err(error) => {
-                    let payload = json!({
-                        "type": "run_failed",
-                        "run_id": run_id_for_stdout,
-                        "error": format!("invalid JSON event from Python: {error}"),
-                    });
-                    let _ = database_for_stdout.persist_event(&payload);
-                    let _ = app_for_stdout.emit("atlas-weave:event", payload);
+                    let _ = event_bus::publish_invalid_json(
+                        &app_for_stdout,
+                        &database_for_stdout,
+                        &run_id_for_stdout,
+                        &error.to_string(),
+                    );
                 }
             }
         }
@@ -97,45 +113,58 @@ pub async fn spawn_run(
         let _ = reader.read_to_string(&mut stderr_output).await;
 
         if !stderr_output.trim().is_empty() {
-            let payload = json!({
-                "type": "node_log",
-                "run_id": run_id_for_stderr,
-                "node_id": "python",
-                "level": "error",
-                "message": stderr_output.trim(),
-            });
-            let _ = database_for_stderr.persist_event(&payload);
-            let _ = app_for_stderr.emit("atlas-weave:event", payload);
+            let _ = event_bus::publish_stderr(
+                &app_for_stderr,
+                &database_for_stderr,
+                &run_id_for_stderr,
+                stderr_output.trim(),
+            );
         }
     });
 
     let app_for_exit = app.clone();
     let database_for_exit = database.clone();
+    let run_manager_for_exit = run_manager.clone();
+    let run_id_for_exit = run_id.clone();
     tokio::spawn(async move {
-        match child.wait().await {
+        let wait_result = {
+            let mut child_guard = child.lock().await;
+            child_guard.wait().await
+        };
+
+        run_manager_for_exit.cleanup(&run_id_for_exit).await;
+
+        match wait_result {
             Ok(status) if !status.success() => {
                 if !matches!(
-                    database_for_exit.run_status(&run_id),
-                    Ok(Some(current)) if current == "failed" || current == "completed"
+                    database_for_exit.run_status(&run_id_for_exit),
+                    Ok(Some(current))
+                        if current == "failed"
+                            || current == "completed"
+                            || current == "cancelled"
                 ) {
-                    let payload = json!({
-                        "type": "run_failed",
-                        "run_id": run_id,
-                        "error": format!("Python process exited with status {status}"),
-                    });
-                    let _ = database_for_exit.persist_event(&payload);
-                    let _ = app_for_exit.emit("atlas-weave:event", payload);
+                    let _ = event_bus::publish_payload(
+                        &app_for_exit,
+                        &database_for_exit,
+                        json!({
+                            "type": "run_failed",
+                            "run_id": run_id_for_exit,
+                            "error": format!("Python process exited with status {status}"),
+                        }),
+                    );
                 }
             }
             Ok(_) => {}
             Err(error) => {
-                let payload = json!({
-                    "type": "run_failed",
-                    "run_id": run_id,
-                    "error": format!("failed waiting for Python process: {error}"),
-                });
-                let _ = database_for_exit.persist_event(&payload);
-                let _ = app_for_exit.emit("atlas-weave:event", payload);
+                let _ = event_bus::publish_payload(
+                    &app_for_exit,
+                    &database_for_exit,
+                    json!({
+                        "type": "run_failed",
+                        "run_id": run_id_for_exit,
+                        "error": format!("failed waiting for Python process: {error}"),
+                    }),
+                );
             }
         }
     });

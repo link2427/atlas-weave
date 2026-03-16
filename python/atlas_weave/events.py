@@ -51,8 +51,14 @@ class EventEmitter:
     def node_skipped(self, node_id: str, message: str) -> None:
         self.emit("node_skipped", node_id=node_id, message=message)
 
+    def node_cancelled(self, node_id: str, message: str) -> None:
+        self.emit("node_cancelled", node_id=node_id, message=message)
+
     def run_completed(self, summary: dict[str, Any]) -> None:
         self.emit("run_completed", summary=summary)
 
     def run_failed(self, error: str) -> None:
         self.emit("run_failed", error=error)
+
+    def run_cancelled(self, message: str) -> None:
+        self.emit("run_cancelled", message=message)

@@ -9,6 +9,7 @@
     completed: 'rgba(56, 189, 248, 0.52)',
     failed: 'rgba(251, 113, 133, 0.58)',
     skipped: 'rgba(251, 191, 36, 0.35)',
+    cancelled: 'rgba(251, 146, 60, 0.4)',
     flowing: 'rgba(56, 189, 248, 0.92)'
   } as const;
 
@@ -18,6 +19,7 @@
     completed: '0',
     failed: '12 10',
     skipped: '6 10',
+    cancelled: '4 12',
     flowing: '0'
   } as const;
 </script>

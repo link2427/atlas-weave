@@ -6,7 +6,7 @@ use std::{
 use anyhow::{Context, Result as AnyhowResult};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::AppResult;
 
@@ -38,6 +38,8 @@ pub struct RunRecord {
     pub status: String,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
+    pub config: Value,
+    pub summary: Option<Value>,
     pub error: Option<String>,
     pub nodes: Vec<RunNodeRecord>,
 }
@@ -53,6 +55,30 @@ pub struct RunNodeRecord {
     pub duration_ms: Option<i64>,
     pub summary: Option<Value>,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RunHistoryRecord {
+    pub id: String,
+    pub recipe_name: String,
+    pub status: String,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub error: Option<String>,
+    pub pending_nodes: i64,
+    pub running_nodes: i64,
+    pub completed_nodes: i64,
+    pub failed_nodes: i64,
+    pub skipped_nodes: i64,
+    pub cancelled_nodes: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct Paginated<T> {
+    pub items: Vec<T>,
+    pub total: i64,
+    pub page: u32,
+    pub page_size: u32,
 }
 
 impl Database {
@@ -191,8 +217,7 @@ impl Database {
             })
         })?;
 
-        let recipes = rows.collect::<Result<Vec<_>, _>>()?;
-        Ok(recipes)
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
     pub fn get_recipe_detail(&self, name: &str) -> AppResult<Option<RecipeDetailRecord>> {
@@ -215,10 +240,11 @@ impl Database {
                         name: row.get(0)?,
                         description: row.get(1)?,
                         version: row.get(2)?,
-                        config_schema: parse_json_column(&row.get::<_, String>(3)?, "config_schema")
-                            .map_err(|error| {
-                                rusqlite::Error::ToSqlConversionFailure(error.into())
-                            })?,
+                        config_schema: parse_json_column(
+                            &row.get::<_, String>(3)?,
+                            "config_schema",
+                        )
+                        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(error.into()))?,
                         dag: parse_json_column(&row.get::<_, String>(4)?, "dag_json").map_err(
                             |error| rusqlite::Error::ToSqlConversionFailure(error.into()),
                         )?,
@@ -230,14 +256,8 @@ impl Database {
         Ok(record)
     }
 
-    pub fn insert_run(
-        &self,
-        run_id: &str,
-        recipe_name: &str,
-        config_json: &serde_json::Value,
-    ) -> AppResult<()> {
+    pub fn insert_run(&self, run_id: &str, recipe_name: &str, config: &Value) -> AppResult<()> {
         let connection = self.connect()?;
-
         connection.execute(
             r#"
             INSERT INTO runs (id, recipe_name, config_json, status, started_at)
@@ -246,11 +266,10 @@ impl Database {
             params![
                 run_id,
                 recipe_name,
-                serde_json::to_string(config_json)?,
+                serde_json::to_string(config)?,
                 Utc::now().to_rfc3339()
             ],
         )?;
-
         Ok(())
     }
 
@@ -287,11 +306,13 @@ impl Database {
             "node_started" => {
                 connection.execute(
                     r#"
-                    INSERT INTO run_nodes (run_id, node_id, status, progress, message, started_at)
-                    VALUES (?1, ?2, 'running', 0.0, NULL, ?3)
+                    INSERT INTO run_nodes (run_id, node_id, status, progress, message, started_at, completed_at, error)
+                    VALUES (?1, ?2, 'running', 0.0, NULL, ?3, NULL, NULL)
                     ON CONFLICT(run_id, node_id) DO UPDATE SET
                         status = 'running',
-                        started_at = excluded.started_at
+                        started_at = excluded.started_at,
+                        completed_at = NULL,
+                        error = NULL
                     "#,
                     params![run_id, node_id, timestamp],
                 )?;
@@ -334,14 +355,15 @@ impl Database {
 
                 connection.execute(
                     r#"
-                    INSERT INTO run_nodes (run_id, node_id, status, progress, completed_at, duration_ms, summary_json)
-                    VALUES (?1, ?2, 'completed', 1.0, ?3, ?4, ?5)
+                    INSERT INTO run_nodes (run_id, node_id, status, progress, completed_at, duration_ms, summary_json, error)
+                    VALUES (?1, ?2, 'completed', 1.0, ?3, ?4, ?5, NULL)
                     ON CONFLICT(run_id, node_id) DO UPDATE SET
                         status = 'completed',
                         progress = 1.0,
                         completed_at = excluded.completed_at,
                         duration_ms = excluded.duration_ms,
-                        summary_json = excluded.summary_json
+                        summary_json = excluded.summary_json,
+                        error = NULL
                     "#,
                     params![run_id, node_id, timestamp, duration_ms, summary_json],
                 )?;
@@ -380,6 +402,23 @@ impl Database {
                     params![run_id, node_id, message, timestamp],
                 )?;
             }
+            "node_cancelled" => {
+                let message = payload
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                connection.execute(
+                    r#"
+                    INSERT INTO run_nodes (run_id, node_id, status, message, completed_at)
+                    VALUES (?1, ?2, 'cancelled', ?3, ?4)
+                    ON CONFLICT(run_id, node_id) DO UPDATE SET
+                        status = 'cancelled',
+                        message = excluded.message,
+                        completed_at = excluded.completed_at
+                    "#,
+                    params![run_id, node_id, message, timestamp],
+                )?;
+            }
             "run_completed" => {
                 let summary_json = payload.get("summary").map(Value::to_string);
                 connection.execute(
@@ -405,6 +444,20 @@ impl Database {
                     params![run_id, timestamp, error],
                 )?;
             }
+            "run_cancelled" => {
+                let message = payload
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                connection.execute(
+                    r#"
+                    UPDATE runs
+                    SET status = 'cancelled', completed_at = ?2, error = NULL, summary_json = ?3
+                    WHERE id = ?1
+                    "#,
+                    params![run_id, timestamp, json!({ "message": message }).to_string()],
+                )?;
+            }
             _ => {}
         }
 
@@ -418,7 +471,6 @@ impl Database {
                 row.get(0)
             })
             .optional()?;
-
         Ok(status)
     }
 
@@ -427,19 +479,39 @@ impl Database {
         let mut run = connection
             .query_row(
                 r#"
-                SELECT id, recipe_name, status, started_at, completed_at, error
+                SELECT
+                    id,
+                    recipe_name,
+                    status,
+                    started_at,
+                    completed_at,
+                    COALESCE(config_json, '{}'),
+                    summary_json,
+                    error
                 FROM runs
                 WHERE id = ?1
                 "#,
                 [run_id],
                 |row| {
+                    let config_json: String = row.get(5)?;
+                    let summary_json: Option<String> = row.get(6)?;
                     Ok(RunRecord {
                         id: row.get(0)?,
                         recipe_name: row.get(1)?,
                         status: row.get(2)?,
                         started_at: row.get(3)?,
                         completed_at: row.get(4)?,
-                        error: row.get(5)?,
+                        config: parse_json_column(&config_json, "config_json").map_err(
+                            |error| rusqlite::Error::ToSqlConversionFailure(error.into()),
+                        )?,
+                        summary: summary_json
+                            .as_deref()
+                            .map(|value| parse_json_column(value, "summary_json"))
+                            .transpose()
+                            .map_err(|error| {
+                                rusqlite::Error::ToSqlConversionFailure(error.into())
+                            })?,
+                        error: row.get(7)?,
                         nodes: Vec::new(),
                     })
                 },
@@ -491,15 +563,101 @@ impl Database {
         Ok(run)
     }
 
-    pub fn get_run_events(&self, run_id: &str, node_id: Option<&str>) -> AppResult<Vec<Value>> {
+    pub fn get_run_history(
+        &self,
+        recipe_name: &str,
+        page: u32,
+        page_size: u32,
+    ) -> AppResult<Paginated<RunHistoryRecord>> {
         let connection = self.connect()?;
+        let offset = i64::from(page.saturating_sub(1) * page_size);
+        let page_size_i64 = i64::from(page_size);
+        let total: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM runs WHERE recipe_name = ?1",
+            [recipe_name],
+            |row| row.get(0),
+        )?;
+
+        let mut statement = connection.prepare(
+            r#"
+            SELECT
+                runs.id,
+                runs.recipe_name,
+                runs.status,
+                runs.started_at,
+                runs.completed_at,
+                runs.error,
+                COALESCE(SUM(CASE WHEN run_nodes.status = 'pending' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN run_nodes.status = 'running' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN run_nodes.status = 'completed' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN run_nodes.status = 'failed' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN run_nodes.status = 'skipped' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN run_nodes.status = 'cancelled' THEN 1 ELSE 0 END), 0)
+            FROM runs
+            LEFT JOIN run_nodes ON run_nodes.run_id = runs.id
+            WHERE runs.recipe_name = ?1
+            GROUP BY runs.id
+            ORDER BY runs.started_at DESC, runs.id DESC
+            LIMIT ?2 OFFSET ?3
+            "#,
+        )?;
+
+        let rows = statement.query_map(params![recipe_name, page_size_i64, offset], |row| {
+            Ok(RunHistoryRecord {
+                id: row.get(0)?,
+                recipe_name: row.get(1)?,
+                status: row.get(2)?,
+                started_at: row.get(3)?,
+                completed_at: row.get(4)?,
+                error: row.get(5)?,
+                pending_nodes: row.get(6)?,
+                running_nodes: row.get(7)?,
+                completed_nodes: row.get(8)?,
+                failed_nodes: row.get(9)?,
+                skipped_nodes: row.get(10)?,
+                cancelled_nodes: row.get(11)?,
+            })
+        })?;
+
+        Ok(Paginated {
+            items: rows.collect::<Result<Vec<_>, _>>()?,
+            total,
+            page,
+            page_size,
+        })
+    }
+
+    pub fn get_run_events(
+        &self,
+        run_id: &str,
+        node_id: Option<&str>,
+        page: u32,
+        page_size: u32,
+    ) -> AppResult<Paginated<Value>> {
+        let connection = self.connect()?;
+        let offset = i64::from(page.saturating_sub(1) * page_size);
+        let page_size_i64 = i64::from(page_size);
+        let total: i64 = match node_id {
+            Some(node) => connection.query_row(
+                "SELECT COUNT(*) FROM run_events WHERE run_id = ?1 AND node_id = ?2",
+                params![run_id, node],
+                |row| row.get(0),
+            )?,
+            None => connection.query_row(
+                "SELECT COUNT(*) FROM run_events WHERE run_id = ?1",
+                [run_id],
+                |row| row.get(0),
+            )?,
+        };
+
         let mut statement = match node_id {
             Some(_) => connection.prepare(
                 r#"
                 SELECT payload_json
                 FROM run_events
                 WHERE run_id = ?1 AND node_id = ?2
-                ORDER BY id ASC
+                ORDER BY id DESC
+                LIMIT ?3 OFFSET ?4
                 "#,
             )?,
             None => connection.prepare(
@@ -507,21 +665,22 @@ impl Database {
                 SELECT payload_json
                 FROM run_events
                 WHERE run_id = ?1
-                ORDER BY id ASC
+                ORDER BY id DESC
+                LIMIT ?2 OFFSET ?3
                 "#,
             )?,
         };
 
-        let values = match node_id {
+        let items = match node_id {
             Some(node) => statement
-                .query_map(params![run_id, node], |row| {
+                .query_map(params![run_id, node, page_size_i64, offset], |row| {
                     let payload_json: String = row.get(0)?;
                     parse_json_column(&payload_json, "payload_json")
                         .map_err(|error| rusqlite::Error::ToSqlConversionFailure(error.into()))
                 })?
                 .collect::<Result<Vec<_>, _>>()?,
             None => statement
-                .query_map([run_id], |row| {
+                .query_map(params![run_id, page_size_i64, offset], |row| {
                     let payload_json: String = row.get(0)?;
                     parse_json_column(&payload_json, "payload_json")
                         .map_err(|error| rusqlite::Error::ToSqlConversionFailure(error.into()))
@@ -529,7 +688,12 @@ impl Database {
                 .collect::<Result<Vec<_>, _>>()?,
         };
 
-        Ok(values)
+        Ok(Paginated {
+            items,
+            total,
+            page,
+            page_size,
+        })
     }
 
     fn connect(&self) -> AppResult<Connection> {
@@ -551,14 +715,25 @@ mod tests {
 
     use super::Database;
 
-    #[test]
-    fn database_persists_run_completion() {
+    fn fixture_database() -> (Database, std::path::PathBuf) {
         let db_path = std::env::temp_dir().join(format!("atlas-weave-{}.db", Uuid::new_v4()));
+        let database = Database::new(db_path.clone()).expect("database should initialize");
+        database.initialize().expect("schema should be created");
+        (database, db_path)
+    }
+
+    fn cleanup(db_path: &std::path::Path) {
         let wal_path = db_path.with_extension("db-wal");
         let shm_path = db_path.with_extension("db-shm");
-        let database = Database::new(db_path.clone()).expect("database should initialize");
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_file(wal_path);
+        let _ = fs::remove_file(shm_path);
+    }
 
-        database.initialize().expect("schema should be created");
+    #[test]
+    fn database_persists_run_completion() {
+        let (database, db_path) = fixture_database();
+
         database
             .upsert_recipe(
                 "test_echo",
@@ -591,90 +766,90 @@ mod tests {
             }))
             .expect("run completion should persist");
 
-        let status = database
-            .run_status("run-1")
+        let run = database
+            .get_run("run-1")
             .expect("query should succeed")
             .expect("run should exist");
 
-        assert_eq!(status, "completed");
+        assert_eq!(run.status, "completed");
+        assert_eq!(
+            run.summary
+                .as_ref()
+                .and_then(|value| value.get("messages_emitted"))
+                .and_then(Value::as_i64),
+            Some(10)
+        );
 
-        let _ = fs::remove_file(db_path);
-        let _ = fs::remove_file(wal_path);
-        let _ = fs::remove_file(shm_path);
+        cleanup(&db_path);
     }
 
     #[test]
-    fn database_persists_skipped_nodes() {
-        let db_path = std::env::temp_dir().join(format!("atlas-weave-{}.db", Uuid::new_v4()));
-        let wal_path = db_path.with_extension("db-wal");
-        let shm_path = db_path.with_extension("db-shm");
-        let database = Database::new(db_path.clone()).expect("database should initialize");
+    fn database_persists_cancelled_nodes() {
+        let (database, db_path) = fixture_database();
 
-        database.initialize().expect("schema should be created");
         database
             .upsert_recipe(
-                "test_pipeline",
+                "test_echo",
                 "test",
                 "0.1.0",
-                std::path::Path::new("python/recipes/test_pipeline"),
-                r#"{"fail_b":{"type":"boolean","default":false}}"#,
+                std::path::Path::new("python/recipes/test_echo"),
+                "{}",
                 r#"{"nodes":[],"edges":[]}"#,
             )
             .expect("recipe should be stored");
         database
-            .insert_run("run-2", "test_pipeline", &json!({"fail_b": true}))
+            .insert_run("run-2", "test_echo", &json!({}))
             .expect("run should insert");
         database
             .persist_event(&json!({
-                "type": "node_skipped",
+                "type": "node_cancelled",
                 "run_id": "run-2",
-                "node_id": "validate_agent",
-                "timestamp": "2026-03-16T00:00:10Z",
-                "message": "Skipped because dependency transform_agent failed"
+                "node_id": "echo_agent",
+                "timestamp": "2026-03-16T00:00:05Z",
+                "message": "Run cancelled"
             }))
-            .expect("node skip should persist");
+            .expect("node cancel should persist");
+        database
+            .persist_event(&json!({
+                "type": "run_cancelled",
+                "run_id": "run-2",
+                "timestamp": "2026-03-16T00:00:05Z",
+                "message": "User cancelled run"
+            }))
+            .expect("run cancel should persist");
 
-        let connection = database.connect().expect("database should open");
-        let status: String = connection
-            .query_row(
-                "SELECT status FROM run_nodes WHERE run_id = ?1 AND node_id = ?2",
-                ["run-2", "validate_agent"],
-                |row| row.get(0),
-            )
-            .expect("node should exist");
+        let run = database
+            .get_run("run-2")
+            .expect("query should succeed")
+            .expect("run should exist");
 
-        assert_eq!(status, "skipped");
+        assert_eq!(run.status, "cancelled");
+        assert_eq!(run.nodes[0].status, "cancelled");
 
-        let _ = fs::remove_file(db_path);
-        let _ = fs::remove_file(wal_path);
-        let _ = fs::remove_file(shm_path);
+        cleanup(&db_path);
     }
 
     #[test]
-    fn database_reads_recipe_detail_and_run_events() {
-        let db_path = std::env::temp_dir().join(format!("atlas-weave-{}.db", Uuid::new_v4()));
-        let wal_path = db_path.with_extension("db-wal");
-        let shm_path = db_path.with_extension("db-shm");
-        let database = Database::new(db_path.clone()).expect("database should initialize");
+    fn database_reads_recipe_detail_history_and_paginated_events() {
+        let (database, db_path) = fixture_database();
 
-        database.initialize().expect("schema should be created");
         database
             .upsert_recipe(
                 "test_pipeline",
                 "pipeline",
                 "0.2.0",
                 std::path::Path::new("python/recipes/test_pipeline"),
-                r#"{"type":"object","properties":{"fail_b":{"type":"boolean"}}}"#,
+                r#"{"fail_b":{"type":"boolean","default":false}}"#,
                 r#"{"nodes":[{"id":"a","label":"A","description":"first"}],"edges":[]}"#,
             )
             .expect("recipe should be stored");
         database
-            .insert_run("run-2", "test_pipeline", &json!({}))
+            .insert_run("run-3", "test_pipeline", &json!({"visible":true}))
             .expect("run should insert");
         database
             .persist_event(&json!({
                 "type": "node_started",
-                "run_id": "run-2",
+                "run_id": "run-3",
                 "node_id": "source_agent",
                 "timestamp": "2026-03-16T00:00:00Z"
             }))
@@ -682,36 +857,56 @@ mod tests {
         database
             .persist_event(&json!({
                 "type": "node_log",
-                "run_id": "run-2",
+                "run_id": "run-3",
                 "node_id": "source_agent",
                 "level": "info",
                 "message": "hello",
                 "timestamp": "2026-03-16T00:00:01Z"
             }))
             .expect("log should persist");
+        database
+            .persist_event(&json!({
+                "type": "node_completed",
+                "run_id": "run-3",
+                "node_id": "source_agent",
+                "timestamp": "2026-03-16T00:00:02Z",
+                "duration_ms": 12,
+                "summary": {"ok": true}
+            }))
+            .expect("completion should persist");
 
         let recipe = database
             .get_recipe_detail("test_pipeline")
             .expect("query should succeed")
             .expect("recipe should exist");
         let run = database
-            .get_run("run-2")
+            .get_run("run-3")
             .expect("query should succeed")
             .expect("run should exist");
         let events = database
-            .get_run_events("run-2", Some("source_agent"))
+            .get_run_events("run-3", Some("source_agent"), 1, 2)
             .expect("events should load");
+        let history = database
+            .get_run_history("test_pipeline", 1, 10)
+            .expect("history should load");
 
         assert_eq!(recipe.name, "test_pipeline");
         assert_eq!(recipe.version, "0.2.0");
         assert_eq!(run.recipe_name, "test_pipeline");
+        assert_eq!(
+            run.config.get("visible").and_then(Value::as_bool),
+            Some(true)
+        );
         assert_eq!(run.nodes.len(), 1);
-        assert_eq!(events.len(), 2);
-        assert_eq!(events[0].get("type").and_then(Value::as_str), Some("node_started"));
-        assert_eq!(events[1].get("message").and_then(Value::as_str), Some("hello"));
+        assert_eq!(events.items.len(), 2);
+        assert_eq!(events.total, 3);
+        assert_eq!(
+            events.items[0].get("type").and_then(Value::as_str),
+            Some("node_completed")
+        );
+        assert_eq!(history.items.len(), 1);
+        assert_eq!(history.items[0].completed_nodes, 1);
 
-        let _ = fs::remove_file(db_path);
-        let _ = fs::remove_file(wal_path);
-        let _ = fs::remove_file(shm_path);
+        cleanup(&db_path);
     }
 }

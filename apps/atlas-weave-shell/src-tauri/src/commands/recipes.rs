@@ -37,10 +37,7 @@ pub fn list_recipes(state: State<'_, AppState>) -> AppResult<Vec<RecipeDto>> {
 }
 
 #[tauri::command]
-pub fn get_recipe_detail(
-    state: State<'_, AppState>,
-    name: String,
-) -> AppResult<RecipeDetailDto> {
+pub fn get_recipe_detail(state: State<'_, AppState>, name: String) -> AppResult<RecipeDetailDto> {
     let recipe = state
         .database
         .get_recipe_detail(&name)?

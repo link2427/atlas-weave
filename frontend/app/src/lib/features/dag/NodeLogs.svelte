@@ -101,6 +101,11 @@
     color: #fde68a;
   }
 
+  .level.node_cancelled,
+  .level.run_cancelled {
+    color: #fdba74;
+  }
+
   .log-message {
     white-space: pre-wrap;
     color: #e2e8f0;
