@@ -1,5 +1,7 @@
 import { writable } from 'svelte/store';
 
+export type RunViewStatus = 'idle' | 'running' | 'completed' | 'failed';
+
 export type AtlasWeaveEvent = {
   type: string;
   run_id: string;
@@ -7,6 +9,7 @@ export type AtlasWeaveEvent = {
   level?: string;
   message?: string;
   progress?: number;
+  duration_ms?: number;
   summary?: Record<string, unknown>;
   error?: string;
   timestamp?: string;
@@ -14,7 +17,7 @@ export type AtlasWeaveEvent = {
 
 type EventState = {
   activeRunId: string | null;
-  status: 'idle' | 'running' | 'completed' | 'failed';
+  status: RunViewStatus;
   events: AtlasWeaveEvent[];
 };
 
@@ -29,11 +32,14 @@ function createEventStore() {
 
   return {
     subscribe,
-    reset(runId: string) {
+    clear() {
+      set(initialState);
+    },
+    setRun(runId: string, status: RunViewStatus, events: AtlasWeaveEvent[] = []) {
       set({
         activeRunId: runId,
-        status: 'running',
-        events: []
+        status,
+        events
       });
     },
     push(event: AtlasWeaveEvent) {
@@ -60,3 +66,13 @@ function createEventStore() {
 }
 
 export const eventStore = createEventStore();
+
+export function normalizeRunStatus(status: string): RunViewStatus {
+  if (status === 'completed') {
+    return 'completed';
+  }
+  if (status === 'failed') {
+    return 'failed';
+  }
+  return 'running';
+}

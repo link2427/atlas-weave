@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::Context;
+use anyhow::{Context, Result as AnyhowResult};
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
@@ -20,6 +20,39 @@ pub struct RecipeRecord {
     pub name: String,
     pub description: String,
     pub version: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct RecipeDetailRecord {
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub config_schema: Value,
+    pub dag: Value,
+}
+
+#[derive(Debug, Clone)]
+pub struct RunRecord {
+    pub id: String,
+    pub recipe_name: String,
+    pub status: String,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub error: Option<String>,
+    pub nodes: Vec<RunNodeRecord>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RunNodeRecord {
+    pub node_id: String,
+    pub status: String,
+    pub progress: f64,
+    pub message: Option<String>,
+    pub started_at: Option<String>,
+    pub completed_at: Option<String>,
+    pub duration_ms: Option<i64>,
+    pub summary: Option<Value>,
+    pub error: Option<String>,
 }
 
 impl Database {
@@ -160,6 +193,41 @@ impl Database {
 
         let recipes = rows.collect::<Result<Vec<_>, _>>()?;
         Ok(recipes)
+    }
+
+    pub fn get_recipe_detail(&self, name: &str) -> AppResult<Option<RecipeDetailRecord>> {
+        let connection = self.connect()?;
+        let record = connection
+            .query_row(
+                r#"
+                SELECT
+                    name,
+                    COALESCE(description, ''),
+                    COALESCE(version, '0.1.0'),
+                    COALESCE(config_schema, '{}'),
+                    COALESCE(dag_json, '{"nodes":[],"edges":[]}')
+                FROM recipes
+                WHERE name = ?1
+                "#,
+                [name],
+                |row| {
+                    Ok(RecipeDetailRecord {
+                        name: row.get(0)?,
+                        description: row.get(1)?,
+                        version: row.get(2)?,
+                        config_schema: parse_json_column(&row.get::<_, String>(3)?, "config_schema")
+                            .map_err(|error| {
+                                rusqlite::Error::ToSqlConversionFailure(error.into())
+                            })?,
+                        dag: parse_json_column(&row.get::<_, String>(4)?, "dag_json").map_err(
+                            |error| rusqlite::Error::ToSqlConversionFailure(error.into()),
+                        )?,
+                    })
+                },
+            )
+            .optional()?;
+
+        Ok(record)
     }
 
     pub fn insert_run(
@@ -354,16 +422,131 @@ impl Database {
         Ok(status)
     }
 
+    pub fn get_run(&self, run_id: &str) -> AppResult<Option<RunRecord>> {
+        let connection = self.connect()?;
+        let mut run = connection
+            .query_row(
+                r#"
+                SELECT id, recipe_name, status, started_at, completed_at, error
+                FROM runs
+                WHERE id = ?1
+                "#,
+                [run_id],
+                |row| {
+                    Ok(RunRecord {
+                        id: row.get(0)?,
+                        recipe_name: row.get(1)?,
+                        status: row.get(2)?,
+                        started_at: row.get(3)?,
+                        completed_at: row.get(4)?,
+                        error: row.get(5)?,
+                        nodes: Vec::new(),
+                    })
+                },
+            )
+            .optional()?;
+
+        let Some(ref mut run_record) = run else {
+            return Ok(None);
+        };
+
+        let mut statement = connection.prepare(
+            r#"
+            SELECT
+                node_id,
+                status,
+                COALESCE(progress, 0.0),
+                message,
+                started_at,
+                completed_at,
+                duration_ms,
+                summary_json,
+                error
+            FROM run_nodes
+            WHERE run_id = ?1
+            ORDER BY node_id ASC
+            "#,
+        )?;
+
+        let rows = statement.query_map([run_id], |row| {
+            let summary_json: Option<String> = row.get(7)?;
+            Ok(RunNodeRecord {
+                node_id: row.get(0)?,
+                status: row.get(1)?,
+                progress: row.get(2)?,
+                message: row.get(3)?,
+                started_at: row.get(4)?,
+                completed_at: row.get(5)?,
+                duration_ms: row.get(6)?,
+                summary: summary_json
+                    .as_deref()
+                    .map(|value| parse_json_column(value, "summary_json"))
+                    .transpose()
+                    .map_err(|error| rusqlite::Error::ToSqlConversionFailure(error.into()))?,
+                error: row.get(8)?,
+            })
+        })?;
+
+        run_record.nodes = rows.collect::<Result<Vec<_>, _>>()?;
+        Ok(run)
+    }
+
+    pub fn get_run_events(&self, run_id: &str, node_id: Option<&str>) -> AppResult<Vec<Value>> {
+        let connection = self.connect()?;
+        let mut statement = match node_id {
+            Some(_) => connection.prepare(
+                r#"
+                SELECT payload_json
+                FROM run_events
+                WHERE run_id = ?1 AND node_id = ?2
+                ORDER BY id ASC
+                "#,
+            )?,
+            None => connection.prepare(
+                r#"
+                SELECT payload_json
+                FROM run_events
+                WHERE run_id = ?1
+                ORDER BY id ASC
+                "#,
+            )?,
+        };
+
+        let values = match node_id {
+            Some(node) => statement
+                .query_map(params![run_id, node], |row| {
+                    let payload_json: String = row.get(0)?;
+                    parse_json_column(&payload_json, "payload_json")
+                        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(error.into()))
+                })?
+                .collect::<Result<Vec<_>, _>>()?,
+            None => statement
+                .query_map([run_id], |row| {
+                    let payload_json: String = row.get(0)?;
+                    parse_json_column(&payload_json, "payload_json")
+                        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(error.into()))
+                })?
+                .collect::<Result<Vec<_>, _>>()?,
+        };
+
+        Ok(values)
+    }
+
     fn connect(&self) -> AppResult<Connection> {
         Ok(Connection::open(&self.path)?)
     }
+}
+
+fn parse_json_column(value: &str, column_name: &str) -> AnyhowResult<Value> {
+    serde_json::from_str(value)
+        .with_context(|| format!("failed to parse {column_name} as JSON: {value}"))
 }
 
 #[cfg(test)]
 mod tests {
     use std::fs;
 
-    use serde_json::json;
+    use serde_json::{json, Value};
     use uuid::Uuid;
 
     use super::Database;
@@ -461,6 +644,71 @@ mod tests {
             .expect("node should exist");
 
         assert_eq!(status, "skipped");
+
+        let _ = fs::remove_file(db_path);
+        let _ = fs::remove_file(wal_path);
+        let _ = fs::remove_file(shm_path);
+    }
+
+    #[test]
+    fn database_reads_recipe_detail_and_run_events() {
+        let db_path = std::env::temp_dir().join(format!("atlas-weave-{}.db", Uuid::new_v4()));
+        let wal_path = db_path.with_extension("db-wal");
+        let shm_path = db_path.with_extension("db-shm");
+        let database = Database::new(db_path.clone()).expect("database should initialize");
+
+        database.initialize().expect("schema should be created");
+        database
+            .upsert_recipe(
+                "test_pipeline",
+                "pipeline",
+                "0.2.0",
+                std::path::Path::new("python/recipes/test_pipeline"),
+                r#"{"type":"object","properties":{"fail_b":{"type":"boolean"}}}"#,
+                r#"{"nodes":[{"id":"a","label":"A","description":"first"}],"edges":[]}"#,
+            )
+            .expect("recipe should be stored");
+        database
+            .insert_run("run-2", "test_pipeline", &json!({}))
+            .expect("run should insert");
+        database
+            .persist_event(&json!({
+                "type": "node_started",
+                "run_id": "run-2",
+                "node_id": "source_agent",
+                "timestamp": "2026-03-16T00:00:00Z"
+            }))
+            .expect("start should persist");
+        database
+            .persist_event(&json!({
+                "type": "node_log",
+                "run_id": "run-2",
+                "node_id": "source_agent",
+                "level": "info",
+                "message": "hello",
+                "timestamp": "2026-03-16T00:00:01Z"
+            }))
+            .expect("log should persist");
+
+        let recipe = database
+            .get_recipe_detail("test_pipeline")
+            .expect("query should succeed")
+            .expect("recipe should exist");
+        let run = database
+            .get_run("run-2")
+            .expect("query should succeed")
+            .expect("run should exist");
+        let events = database
+            .get_run_events("run-2", Some("source_agent"))
+            .expect("events should load");
+
+        assert_eq!(recipe.name, "test_pipeline");
+        assert_eq!(recipe.version, "0.2.0");
+        assert_eq!(run.recipe_name, "test_pipeline");
+        assert_eq!(run.nodes.len(), 1);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].get("type").and_then(Value::as_str), Some("node_started"));
+        assert_eq!(events[1].get("message").and_then(Value::as_str), Some("hello"));
 
         let _ = fs::remove_file(db_path);
         let _ = fs::remove_file(wal_path);

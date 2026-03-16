@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "identifier": "com.atlasweave.desktop",
   "build": {
-    "beforeDevCommand": "npm.cmd --prefix ../../../frontend/app run dev -- --host 127.0.0.1 --port 4173 --strictPort",
-    "beforeBuildCommand": "npm.cmd --prefix ../../../frontend/app run build",
+    "beforeDevCommand": "npm.cmd --prefix ../../frontend/app run dev -- --host 127.0.0.1 --port 4173 --strictPort",
+    "beforeBuildCommand": "npm.cmd --prefix ../../frontend/app run build",
     "devUrl": "http://127.0.0.1:4173",
-    "frontendDist": "../../../frontend/app/build"
+    "frontendDist": "../../frontend/app/build"
   },
   "app": {
     "windows": [

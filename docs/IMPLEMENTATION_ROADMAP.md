@@ -1,9 +1,9 @@
-# Atlas Weave — Implementation Roadmap
+# Atlas Weave - Implementation Roadmap
 
-## Phase 1 — Skeleton
+## Phase 1 - Skeleton
 
 ### Goal
-Tauri v2 + SvelteKit app running, Python project structure created, Rust ↔ Python JSON protocol working end-to-end. Basic UI shows a recipe list and a "Start Run" button that launches Python and streams raw log output.
+Tauri v2 + SvelteKit app running, Python project structure created, Rust <-> Python JSON protocol working end-to-end. Basic UI shows a recipe list and a "Start Run" button that launches Python and streams raw log output.
 
 ### Checklist
 
@@ -14,12 +14,12 @@ Tauri v2 + SvelteKit app running, Python project structure created, Rust ↔ Pyt
 - [x] Create `apps/atlas-weave-shell/src-tauri/src/db.rs`: SQLite init with schema from ARCHITECTURE.md Section 5
 - [x] Create Python project in `python/` with `pyproject.toml` and `atlas_weave/` package
 - [x] Implement `atlas_weave/events.py`: `EventEmitter` class that writes JSON lines to stdout
-- [x] Implement `atlas_weave/runner.py`: reads `--recipe` and `--run-id` args, imports recipe, emits `run_completed` event (stub — no real execution yet)
+- [x] Implement `atlas_weave/runner.py`: reads `--recipe` and `--run-id` args, imports recipe, emits `run_completed` event (stub - no real execution yet)
 - [x] Implement `services/sidecar.rs`: spawn Python process (`python -m atlas_weave.runner --recipe {name} --run-id {uuid}`), read stdout line-by-line, parse JSON, emit Tauri events
 - [x] Implement `commands/runs.rs`: `start_run` command that triggers sidecar
 - [x] Create a test recipe (`python/recipes/test_echo/recipe.py`) with one agent that emits 10 log messages with 1-second delays
 - [x] Create basic frontend: recipe list page, "Start Run" button, raw scrolling log output from Tauri event listener
-- [x] Verify: click Start Run → Python spawns → logs stream into UI in real time
+- [x] Verify: click Start Run -> Python spawns -> logs stream into UI in real time
 
 ### Acceptance Criteria
 1. `cargo tauri dev` launches the app
@@ -30,7 +30,7 @@ Tauri v2 + SvelteKit app running, Python project structure created, Rust ↔ Pyt
 
 ---
 
-## Phase 2 — Agent Framework
+## Phase 2 - Agent Framework
 
 ### Goal
 The Python `atlas_weave` library has a complete agent framework: Agent, Recipe, Tool, AgentContext base classes. The DAG runner topologically sorts and executes agents. A test recipe with 2+ agents demonstrates dependency ordering.
@@ -43,13 +43,13 @@ The Python `atlas_weave` library has a complete agent framework: Agent, Recipe, 
 - [x] Implement `atlas_weave/recipe.py`: `Recipe` base class with `name`, `description`, `version`, `agents`, `edges`, `config_schema`
 - [x] Implement `atlas_weave/tool.py`: `Tool` abstract base class with `name`, `description`, `call(ctx, **kwargs)`
 - [x] Implement `atlas_weave/dag.py`: topological sort of agents from `edges`, detect cycles, determine execution order, identify parallelizable agents
-- [x] Update `atlas_weave/runner.py`: import recipe → build DAG → execute agents in order → emit `node_started`/`node_progress`/`node_completed`/`node_failed` events per agent → emit `run_completed`/`run_failed`
+- [x] Update `atlas_weave/runner.py`: import recipe -> build DAG -> execute agents in order -> emit `node_started`/`node_progress`/`node_completed`/`node_failed` events per agent -> emit `run_completed`/`run_failed`
 - [x] Handle agent failures: if agent fails, mark downstream dependents as `skipped`
-- [x] Create test recipe with 3 agents: A → B → C, where A produces data, B transforms it, C validates it
+- [x] Create test recipe with 3 agents: A -> B -> C, where A produces data, B transforms it, C validates it
 - [x] Verify: agents execute in correct order, events stream to Rust, failures propagate correctly
 
 ### Acceptance Criteria
-1. Test recipe with A → B → C executes in order
+1. Test recipe with A -> B -> C executes in order
 2. Each agent's start/progress/completion events appear in UI
 3. If B fails, C is automatically skipped
 4. `AgentContext` provides config values from run configuration
@@ -57,7 +57,7 @@ The Python `atlas_weave` library has a complete agent framework: Agent, Recipe, 
 
 ---
 
-## Phase 3 — DAG Viewer
+## Phase 3 - DAG Viewer
 
 ### Goal
 The centerpiece UI: a real-time DAG visualization where nodes light up, progress rings spin, edges animate with data flow, and clicking a node opens a detail panel.
@@ -65,30 +65,30 @@ The centerpiece UI: a real-time DAG visualization where nodes light up, progress
 ### Checklist
 
 #### 3A: DAG Rendering
-- [ ] Install dagre (`@dagrejs/dagre`) or ELK.js for graph layout
-- [ ] Create `frontend/app/src/lib/features/dag/dag-layout.ts`: takes recipe's agent list + edges, computes node positions and edge paths via dagre
-- [ ] Create `DagViewer.svelte`: SVG canvas that renders the computed layout, handles zoom/pan
-- [ ] Create `DagNode.svelte`: renders a single node — circle with label, color based on status, progress ring overlay
-- [ ] Create `DagEdge.svelte`: renders edge between nodes — bezier curve, color based on state
+- [x] Install dagre (`@dagrejs/dagre`) or ELK.js for graph layout
+- [x] Create `frontend/app/src/lib/features/dag/dag-layout.ts`: takes recipe's agent list + edges, computes node positions and edge paths via dagre
+- [x] Create `DagViewer.svelte`: SVG canvas that renders the computed layout, handles zoom/pan
+- [x] Create `DagNode.svelte`: renders a single node - circle with label, color based on status, progress ring overlay
+- [x] Create `DagEdge.svelte`: renders edge between nodes - bezier curve, color based on state
 
 #### 3B: Real-Time Updates
-- [ ] Create `frontend/app/src/lib/stores/dag.ts`: reactive store that holds node statuses and progress, updated from Tauri event stream
-- [ ] On `node_started` event → node transitions from `pending` to `running` with CSS animation
-- [ ] On `node_progress` event → progress ring updates smoothly (CSS transition)
-- [ ] On `node_completed` event → node transitions to `completed` with flash animation
-- [ ] On `node_failed` event → node transitions to `failed` with shake animation
-- [ ] Edges animate with flowing blue dots when data passes between connected nodes (triggered on upstream `node_completed`)
+- [x] Create `frontend/app/src/lib/stores/dag.ts`: reactive store that holds node statuses and progress, updated from Tauri event stream
+- [x] On `node_started` event -> node transitions from `pending` to `running` with CSS animation
+- [x] On `node_progress` event -> progress ring updates smoothly (CSS transition)
+- [x] On `node_completed` event -> node transitions to `completed` with flash animation
+- [x] On `node_failed` event -> node transitions to `failed` with shake animation
+- [x] Edges animate with flowing blue dots when data passes between connected nodes (triggered on upstream `node_completed`)
 
 #### 3C: Node Interaction
-- [ ] Click node → open `NodeDetail.svelte` panel below the DAG
-- [ ] `NodeDetail.svelte`: tabbed panel with Summary, Logs, Tools, Data tabs
-- [ ] `NodeSummary.svelte`: status badge, progress bar, duration, key metrics from `node_completed` summary
-- [ ] `NodeLogs.svelte`: scrollable log viewer filtered to this node's events, color-coded by level
-- [ ] Hover node → tooltip with name, status, progress message
+- [x] Click node -> open `NodeDetail.svelte` panel below the DAG
+- [x] `NodeDetail.svelte`: tabbed panel with Summary, Logs, Tools, Data tabs
+- [x] `NodeSummary.svelte`: status badge, progress bar, duration, key metrics from `node_completed` summary
+- [x] `NodeLogs.svelte`: scrollable log viewer filtered to this node's events, color-coded by level
+- [x] Hover node -> tooltip with name, status, progress message
 
 #### 3D: Route Integration
-- [ ] Create `frontend/app/src/routes/run/[id]/+page.svelte`: loads run data, renders DagViewer + NodeDetail + LogViewer
-- [ ] Wire "Start Run" button to navigate to `/run/{new_run_id}` after starting
+- [x] Create `frontend/app/src/routes/run/[id]/+page.svelte`: loads run data, renders DagViewer + NodeDetail + LogViewer
+- [x] Wire "Start Run" button to navigate to `/run/{new_run_id}` after starting
 
 ### Acceptance Criteria
 1. DAG renders with correct layout (nodes positioned, edges routed)
@@ -96,26 +96,26 @@ The centerpiece UI: a real-time DAG visualization where nodes light up, progress
 3. Progress rings animate smoothly during agent execution
 4. Clicking a node shows its detail panel with correct data
 5. Edge animations trigger when data flows between agents
-6. Running the test recipe shows the full visual lifecycle from pending → running → completed
+6. Running the test recipe shows the full visual lifecycle from pending -> running -> completed
 
 ---
 
-## Phase 4 — Run Management
+## Phase 4 - Run Management
 
 ### Goal
 Full run lifecycle: persist runs to SQLite, browse run history, load historical runs into the DAG viewer, configure runs before launch, cancel running runs.
 
 ### Checklist
 
-- [ ] Implement `commands/runs.rs`: `get_run_history` — paginated list of past runs for a recipe
-- [ ] Implement `commands/runs.rs`: `get_run` — full run detail including all node statuses
-- [ ] Implement `commands/runs.rs`: `get_run_events` — paginated events for a run, filterable by node
-- [ ] Implement `commands/runs.rs`: `cancel_run` — sends cancel command to Python via stdin, marks run as cancelled
+- [ ] Implement `commands/runs.rs`: `get_run_history` - paginated list of past runs for a recipe
+- [ ] Implement `commands/runs.rs`: `get_run` - full run detail including all node statuses
+- [ ] Implement `commands/runs.rs`: `get_run_events` - paginated events for a run, filterable by node
+- [ ] Implement `commands/runs.rs`: `cancel_run` - sends cancel command to Python via stdin, marks run as cancelled
 - [ ] Implement `services/event_bus.rs`: persist every Python event to `run_events` table, update `run_nodes` status
 - [ ] Create `RunList.svelte`: sidebar showing past runs with status icon, timestamp, quick stats
-- [ ] Click historical run → load its node states and events into DAG viewer (replay mode)
+- [ ] Click historical run -> load its node states and events into DAG viewer (replay mode)
 - [ ] Create `RunConfig.svelte`: before launching, show config form generated from recipe's `config_schema`
-- [ ] Implement `commands/settings.rs`: `get_credentials`, `save_credentials` — encrypted Tauri store
+- [ ] Implement `commands/settings.rs`: `get_credentials`, `save_credentials` - encrypted Tauri store
 - [ ] Create `Credentials.svelte`: API key management (Space-Track, Claude, DISCOS, etc.)
 - [ ] Credential values injected as env vars when Python spawns (never in config JSON)
 
@@ -129,24 +129,24 @@ Full run lifecycle: persist runs to SQLite, browse run history, load historical 
 
 ---
 
-## Phase 5 — Built-in Tools
+## Phase 5 - Built-in Tools
 
 ### Goal
 The Python framework includes production-ready built-in tools that auto-emit events. Every HTTP request, LLM call, web search, and scrape shows up in the UI with timing and cost.
 
 ### Checklist
 
-- [ ] Implement `tools/http_tool.py`: `HttpTool` wrapping httpx — emits `tool_call` on every request (method, URL), emits `tool_result` with status code, duration, response size
-- [ ] Implement `tools/llm_tool.py`: `LLMTool` wrapping Claude API — emits `llm_call` (model, prompt_tokens), emits `llm_result` (completion_tokens, duration, estimated cost). Supports structured output via tool_use.
-- [ ] Implement `tools/web_search_tool.py`: `WebSearchTool` — emits events, caches results by query with configurable TTL (default 7 days)
-- [ ] Implement `tools/web_scrape_tool.py`: `WebScrapeTool` using BeautifulSoup — fetches URL via HttpTool (gets event emission for free), parses HTML, returns text/structured data
-- [ ] Implement `tools/sqlite_tool.py`: `SQLiteTool` — wraps SQLite access for recipe output databases, provides `execute`, `fetch_all`, `fetch_one`, `upsert` helpers
+- [ ] Implement `tools/http_tool.py`: `HttpTool` wrapping httpx - emits `tool_call` on every request (method, URL), emits `tool_result` with status code, duration, response size
+- [ ] Implement `tools/llm_tool.py`: `LLMTool` wrapping Claude API - emits `llm_call` (model, prompt_tokens), emits `llm_result` (completion_tokens, duration, estimated cost). Supports structured output via tool_use.
+- [ ] Implement `tools/web_search_tool.py`: `WebSearchTool` - emits events, caches results by query with configurable TTL (default 7 days)
+- [ ] Implement `tools/web_scrape_tool.py`: `WebScrapeTool` using BeautifulSoup - fetches URL via HttpTool (gets event emission for free), parses HTML, returns text/structured data
+- [ ] Implement `tools/sqlite_tool.py`: `SQLiteTool` - wraps SQLite access for recipe output databases, provides `execute`, `fetch_all`, `fetch_one`, `upsert` helpers
 - [ ] Update `NodeTools.svelte`: renders list of all tool calls for a node, expandable to show full request/response
 - [ ] Add LLM cost estimation: model pricing table, compute cost from token counts, show cumulative cost per run
 - [ ] Write tests for each tool (mock HTTP responses, verify event emission format)
 
 ### Acceptance Criteria
-1. HttpTool emits events for every request — visible in NodeTools panel
+1. HttpTool emits events for every request - visible in NodeTools panel
 2. LLMTool tracks tokens and shows estimated cost
 3. WebSearchTool caches results and skips duplicate queries
 4. All tool events appear in the Tools tab of node detail
@@ -154,7 +154,7 @@ The Python framework includes production-ready built-in tools that auto-emit eve
 
 ---
 
-## Phase 6 — Satellite Enrichment Recipe
+## Phase 6 - Satellite Enrichment Recipe
 
 ### Goal
 The first real recipe: the Cosmotrak satellite enrichment pipeline. 4 agents, pulling from Space-Track/CelesTrak/DISCOS/UCS, merging, LLM gap-filling, and validating. Produces a SQLite database that the Cosmotrak API can consume.
@@ -166,7 +166,7 @@ The first real recipe: the Cosmotrak satellite enrichment pipeline. 4 agents, pu
 - [ ] Define SQLite output schema matching the Cosmotrak API's expectations
 
 #### 6B: StructuredDataCollector Agent
-- [ ] Implement Space-Track SATCAT fetcher (requires auth — username/password from config)
+- [ ] Implement Space-Track SATCAT fetcher (requires auth - username/password from config)
 - [ ] Implement Space-Track GP data fetcher (live orbital parameters)
 - [ ] Implement CelesTrak SATCAT fetcher (48 categories)
 - [ ] Implement ESA DISCOS fetcher (paginated, requires auth token)
@@ -200,28 +200,28 @@ The first real recipe: the Cosmotrak satellite enrichment pipeline. 4 agents, pu
 #### 6F: Integration Test
 - [ ] Run full pipeline end-to-end
 - [ ] Verify output DB has 10,000+ records with TLEs and enrichment
-- [ ] Verify coverage targets: ≥80% with operator+purpose, ≥70% with mass data
+- [ ] Verify coverage targets: >=80% with operator+purpose, >=70% with mass data
 - [ ] Verify Cosmotrak API can read the output DB
 
 ### Acceptance Criteria
 1. Full pipeline runs to completion in the Atlas Weave UI
 2. DAG shows all 4 agents executing with real progress
 3. Output SQLite has 10,000+ satellite records
-4. ≥80% of records have operator + purpose populated
+4. >=80% of records have operator + purpose populated
 5. LLM researcher fills gaps for low-completeness records
 6. Quality auditor summary matches validation criteria
 7. Output DB schema matches Cosmotrak API expectations
 
 ---
 
-## Phase 7 — Data Inspector
+## Phase 7 - Data Inspector
 
 ### Goal
 A full-screen data browser for inspecting recipe output databases. Browse records, sort/filter, view details, see coverage stats.
 
 ### Checklist
 
-- [ ] Implement `commands/data.rs`: `query_recipe_db` — opens recipe output DB in read-only mode, executes paginated queries with sort/filter params
+- [ ] Implement `commands/data.rs`: `query_recipe_db` - opens recipe output DB in read-only mode, executes paginated queries with sort/filter params
 - [ ] Create `DataBrowser.svelte`: full-screen view with table + sidebar
 - [ ] Create `DataTable.svelte`: paginated table with column sorting, text search, column filtering
 - [ ] Create `RecordDetail.svelte`: click a row to see all fields for one record in a formatted view
@@ -239,7 +239,7 @@ A full-screen data browser for inspecting recipe output databases. Browse record
 
 ---
 
-## Phase 8 — Scheduling
+## Phase 8 - Scheduling
 
 ### Goal
 Recipes can be scheduled to run on a cron interval. The scheduler triggers runs automatically and prevents overlapping executions.
@@ -262,7 +262,7 @@ Recipes can be scheduled to run on a cron interval. The scheduler triggers runs 
 
 ---
 
-## Phase 9 — Polish
+## Phase 9 - Polish
 
 ### Goal
 Final polish: cost tracking, dark/light theme, notifications, error recovery, and UX refinements.

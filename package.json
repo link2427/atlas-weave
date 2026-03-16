@@ -8,6 +8,6 @@
   "scripts": {
     "dev:frontend": "npm --workspace frontend/app run dev",
     "build:frontend": "npm --workspace frontend/app run build",
-    "tauri:dev": "cargo tauri dev --manifest-path apps/atlas-weave-shell/src-tauri/Cargo.toml"
+    "tauri:dev": "cd apps/atlas-weave-shell/src-tauri && cargo tauri dev"
   }
 }

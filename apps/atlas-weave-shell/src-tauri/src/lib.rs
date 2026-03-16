@@ -4,7 +4,10 @@ mod services;
 
 use std::sync::Arc;
 
-use commands::{recipes::list_recipes, runs::start_run};
+use commands::{
+    recipes::{get_recipe_detail, list_recipes},
+    runs::{get_run, get_run_events, start_run},
+};
 use db::Database;
 use serde::Serialize;
 use tauri::Manager;
@@ -64,7 +67,13 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![list_recipes, start_run])
+        .invoke_handler(tauri::generate_handler![
+            list_recipes,
+            get_recipe_detail,
+            start_run,
+            get_run,
+            get_run_events
+        ])
         .run(tauri::generate_context!())
         .expect("failed to run Atlas Weave application");
 }
