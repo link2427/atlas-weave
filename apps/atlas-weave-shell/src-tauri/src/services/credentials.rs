@@ -38,6 +38,12 @@ impl CredentialStore {
         if keys.is_empty() {
             return Ok(result);
         }
+        if !self.snapshot_path.exists() {
+            for key in keys {
+                result.insert(key.clone(), false);
+            }
+            return Ok(result);
+        }
 
         let stronghold = self.open()?;
         let client = self.client(&stronghold)?;
@@ -53,6 +59,9 @@ impl CredentialStore {
     pub fn get_values(&self, keys: &[String]) -> AppResult<HashMap<String, String>> {
         let mut result = HashMap::new();
         if keys.is_empty() {
+            return Ok(result);
+        }
+        if !self.snapshot_path.exists() {
             return Ok(result);
         }
 
@@ -117,12 +126,19 @@ impl CredentialStore {
                     self.key_path.display()
                 )
             })?;
-            if !value.is_empty() {
+            if value.len() == 32 {
                 return Ok(value);
+            }
+            if self.snapshot_path.exists() {
+                return Err(anyhow::anyhow!(
+                    "credential key at {} is invalid for an existing snapshot",
+                    self.key_path.display()
+                )
+                .into());
             }
         }
 
-        let generated = format!("atlas-weave-{}", Uuid::new_v4()).into_bytes();
+        let generated = generate_key_bytes();
         fs::write(&self.key_path, &generated).with_context(|| {
             format!(
                 "failed to persist credential key at {}",
@@ -130,5 +146,75 @@ impl CredentialStore {
             )
         })?;
         Ok(generated)
+    }
+}
+
+fn generate_key_bytes() -> Vec<u8> {
+    let mut generated = Vec::with_capacity(32);
+    generated.extend_from_slice(Uuid::new_v4().as_bytes());
+    generated.extend_from_slice(Uuid::new_v4().as_bytes());
+    generated
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{collections::HashMap, fs};
+
+    use tempfile::tempdir;
+
+    use super::CredentialStore;
+
+    #[test]
+    fn empty_store_reports_missing_keys_without_snapshot() {
+        let temp_dir = tempdir().expect("tempdir should exist");
+        let store = CredentialStore::new(temp_dir.path()).expect("store should initialize");
+        let keys = vec!["openrouter_api_key".to_string(), "claude_api_key".to_string()];
+
+        let presence = store.presence(&keys).expect("presence lookup should succeed");
+        let values = store.get_values(&keys).expect("get_values should succeed");
+
+        assert_eq!(presence.get("openrouter_api_key").copied(), Some(false));
+        assert_eq!(presence.get("claude_api_key").copied(), Some(false));
+        assert!(values.is_empty());
+        assert!(!temp_dir.path().join("credentials.hold").exists());
+    }
+
+    #[test]
+    fn save_creates_snapshot_and_round_trips_values() {
+        let temp_dir = tempdir().expect("tempdir should exist");
+        let store = CredentialStore::new(temp_dir.path()).expect("store should initialize");
+        let mut values = HashMap::new();
+        values.insert("openrouter_api_key".to_string(), Some("secret-123".to_string()));
+
+        store.save(&values).expect("save should succeed");
+
+        let keys = vec!["openrouter_api_key".to_string()];
+        let presence = store.presence(&keys).expect("presence lookup should succeed");
+        let loaded = store.get_values(&keys).expect("values should load");
+
+        assert_eq!(presence.get("openrouter_api_key").copied(), Some(true));
+        assert_eq!(
+            loaded.get("openrouter_api_key").map(String::as_str),
+            Some("secret-123")
+        );
+
+        fs::remove_file(temp_dir.path().join("credentials.hold")).ok();
+        fs::remove_file(temp_dir.path().join("credentials.key")).ok();
+    }
+
+    #[test]
+    fn invalid_first_run_key_is_replaced_before_save() {
+        let temp_dir = tempdir().expect("tempdir should exist");
+        let store = CredentialStore::new(temp_dir.path()).expect("store should initialize");
+        fs::write(temp_dir.path().join("credentials.key"), b"atlas-weave-invalid-length")
+            .expect("invalid key should be written");
+        let mut values = HashMap::new();
+        values.insert("claude_api_key".to_string(), Some("secret-456".to_string()));
+
+        store.save(&values).expect("save should succeed");
+
+        let rewritten = fs::read(temp_dir.path().join("credentials.key")).expect("key should exist");
+        assert_eq!(rewritten.len(), 32);
+        assert!(temp_dir.path().join("credentials.hold").exists());
     }
 }

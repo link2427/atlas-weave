@@ -28,6 +28,7 @@ class CancellationToken:
 @dataclass(slots=True)
 class AgentContext:
     run_id: str
+    node_id: str
     config: dict[str, Any]
     db: Any | None
     tools: ToolRegistry

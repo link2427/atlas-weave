@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { AtlasWeaveEvent } from '$lib/stores/events';
 
 export type RunStatus =
   | 'pending'
@@ -95,8 +96,8 @@ export function getRunEvents(
   nodeId?: string,
   page = 1,
   pageSize = 200
-): Promise<PaginatedResponse<Record<string, unknown>>> {
-  return invoke<PaginatedResponse<Record<string, unknown>>>('get_run_events', {
+): Promise<PaginatedResponse<AtlasWeaveEvent>> {
+  return invoke<PaginatedResponse<AtlasWeaveEvent>>('get_run_events', {
     runId,
     nodeId,
     page,

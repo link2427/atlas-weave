@@ -6,12 +6,22 @@ export type AtlasWeaveEvent = {
   type: string;
   run_id: string;
   node_id?: string;
+  tool?: string;
+  provider?: string;
+  model?: string;
+  request_id?: string;
   level?: string;
   message?: string;
   progress?: number;
   duration_ms?: number;
   summary?: Record<string, unknown>;
   error?: string;
+  input?: unknown;
+  output?: unknown;
+  cache_hit?: boolean;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  estimated_cost_usd?: number;
   timestamp?: string;
 };
 

@@ -192,10 +192,10 @@
       <section class="rounded-[32px] border border-white/10 bg-ink/70 p-6 shadow-glow">
         <div class="grid gap-6 lg:grid-cols-[1.1fr,0.9fr]">
           <div class="rounded-[30px] border border-white/10 bg-gradient-to-br from-white/8 to-transparent p-6">
-            <p class="text-xs uppercase tracking-[0.35em] text-flare">Phase 4</p>
-            <h2 class="mt-3 text-4xl font-semibold text-mist">Run Management</h2>
+            <p class="text-xs uppercase tracking-[0.35em] text-flare">Phase 5</p>
+            <h2 class="mt-3 text-4xl font-semibold text-mist">Built-in Tools</h2>
             <p class="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
-              Launch configs are now generated from recipe metadata, secret fields are validated against Settings, and runs stay cancellable while the live DAG is active.
+              Atlas Weave now records structured HTTP, search, scrape, and multi-provider LLM activity so each node can be inspected beyond raw logs.
             </p>
           </div>
 
@@ -203,9 +203,9 @@
             <div class="rounded-[28px] border border-white/10 bg-white/5 p-5">
               <h3 class="text-lg font-semibold text-mist">What Opens Next</h3>
               <ul class="mt-4 space-y-3 text-sm leading-6 text-slate-300">
-                <li>The run route loads persisted DAG state, run summary, and same-recipe history.</li>
-                <li>Run logs page in from SQLite and continue streaming live while the run is active.</li>
-                <li>Cancel requests go through Rust to the Python sidecar over stdin.</li>
+                <li>The run route hydrates structured tool and LLM events alongside the DAG state.</li>
+                <li>The Tools tab groups request and result payloads by request id for each node.</li>
+                <li>Run summary now surfaces cumulative tool calls, token totals, and estimated LLM cost.</li>
               </ul>
             </div>
 
@@ -214,6 +214,7 @@
               <div class="mt-4 space-y-3 text-sm leading-6 text-slate-300">
                 <p><code>test_echo</code> remains the smoke path for cancel and log streaming.</p>
                 <p><code>test_pipeline</code> still drives the three-node DAG visualizer and failure-state checks.</p>
+                <p><code>test_tools</code> exercises HTTP, DuckDuckGo search, scraping, and OpenRouter or Anthropic calls.</p>
               </div>
             </div>
           </div>

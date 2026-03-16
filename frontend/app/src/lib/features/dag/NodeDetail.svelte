@@ -1,6 +1,7 @@
 <script lang="ts">
   import NodeLogs from '$lib/features/dag/NodeLogs.svelte';
   import NodeSummary from '$lib/features/dag/NodeSummary.svelte';
+  import NodeTools from '$lib/features/dag/NodeTools.svelte';
   import type { DagNodeState } from '$lib/stores/dag';
   import type { AtlasWeaveEvent } from '$lib/stores/events';
 
@@ -51,9 +52,7 @@
       {:else if activeTab === 'logs'}
         <NodeLogs {events} />
       {:else if activeTab === 'tools'}
-        <div class="empty-panel">
-          Tool call inspection arrives in a later phase once agents emit structured tool traces.
-        </div>
+        <NodeTools {events} />
       {:else}
         <div class="empty-panel">
           Data inspection arrives in a later phase once recipe output databases are exposed read-only.

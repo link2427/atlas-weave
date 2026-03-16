@@ -206,9 +206,9 @@
 </svelte:head>
 
 <div class="min-h-screen px-6 py-8 text-slate-50 lg:px-10">
-  <div class="mx-auto max-w-7xl space-y-6">
+  <div class="mx-auto max-w-[1600px] space-y-6">
     <section class="rounded-[32px] border border-white/10 bg-ink/70 p-6 shadow-glow">
-      <div class="flex flex-col gap-5 border-b border-white/10 pb-6 lg:flex-row lg:items-end lg:justify-between">
+      <div class="flex flex-col gap-5 border-b border-white/10 pb-6 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <p class="text-xs uppercase tracking-[0.35em] text-sea">Atlas Weave Run</p>
           <h1 class="mt-3 text-3xl font-semibold text-mist">
@@ -217,9 +217,17 @@
           <p class="mt-3 text-sm text-slate-300">
             Run ID <code>{routeRunId}</code>
           </p>
+          <div class="mt-4 flex flex-wrap gap-3">
+            <button class="nav-button" on:click={() => goto('/')}>
+              Back to launcher
+            </button>
+            <button class="nav-button alt" on:click={() => goto('/')}>
+              Start another run
+            </button>
+          </div>
         </div>
 
-        <div class="grid gap-3 text-sm text-slate-300 md:grid-cols-3">
+        <div class="grid gap-3 text-sm text-slate-300 md:grid-cols-2 2xl:grid-cols-3">
           <div class="stat-card">
             <p class="eyebrow">Status</p>
             <p class={statusClasses(eventState.status !== 'idle' ? eventState.status : runDetail?.status ?? null)}>
@@ -246,7 +254,7 @@
           <a class="mt-4 inline-flex text-sm text-rose-50 underline" href="/">Back to recipes</a>
         </div>
       {:else}
-        <div class="mt-6 grid gap-6 xl:grid-cols-[290px,1fr]">
+        <div class="mt-6 grid gap-6 2xl:grid-cols-[320px,minmax(0,1fr)]">
           <RunList
             recipeName={runDetail?.recipeName ?? ''}
             activeRunId={routeRunId}
@@ -277,7 +285,7 @@
     </section>
 
     {#if !loading && !loadError}
-      <section class="grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
+      <section class="grid gap-6 2xl:grid-cols-[minmax(0,1.05fr),minmax(420px,0.95fr)]">
         <NodeDetail node={selectedNode} events={selectedNodeEvents} />
         <RunLogViewer
           events={eventState.events}
@@ -339,5 +347,25 @@
     min-height: 26rem;
     place-items: center;
     color: rgba(226, 232, 240, 0.76);
+  }
+
+  .nav-button {
+    border-radius: 9999px;
+    border: 1px solid rgba(125, 211, 252, 0.25);
+    background: rgba(8, 15, 30, 0.72);
+    padding: 0.75rem 1rem;
+    color: #e0f2fe;
+    transition: border-color 160ms ease, background 160ms ease;
+  }
+
+  .nav-button:hover {
+    border-color: rgba(125, 211, 252, 0.55);
+    background: rgba(14, 116, 144, 0.2);
+  }
+
+  .nav-button.alt {
+    border-color: rgba(45, 212, 191, 0.28);
+    background: rgba(15, 118, 110, 0.18);
+    color: #ccfbf1;
   }
 </style>

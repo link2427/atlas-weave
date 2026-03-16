@@ -14,6 +14,7 @@ from atlas_weave.dag import DagPlan, build_execution_plan
 from atlas_weave.events import EventEmitter
 from atlas_weave.recipe import Recipe
 from atlas_weave.tool import ToolRegistry
+from atlas_weave.tools import register_builtin_tools
 
 
 def parse_args() -> argparse.Namespace:
@@ -81,6 +82,37 @@ class AgentOutcome:
     error: str | None = None
 
 
+@dataclass(slots=True)
+class RunMetrics:
+    tool_calls: int = 0
+    llm_calls: int = 0
+    llm_prompt_tokens: int = 0
+    llm_completion_tokens: int = 0
+    llm_cost_usd: float = 0.0
+
+    def record(self, event: dict[str, Any]) -> None:
+        if event["type"] == "tool_call":
+            self.tool_calls += 1
+        elif event["type"] == "llm_call":
+            self.llm_calls += 1
+        elif event["type"] == "llm_result":
+            self.llm_prompt_tokens += int(event.get("prompt_tokens", 0) or 0)
+            self.llm_completion_tokens += int(event.get("completion_tokens", 0) or 0)
+            self.llm_cost_usd = round(
+                self.llm_cost_usd + float(event.get("estimated_cost_usd", 0.0) or 0.0),
+                6,
+            )
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "tool_calls": self.tool_calls,
+            "llm_calls": self.llm_calls,
+            "llm_prompt_tokens": self.llm_prompt_tokens,
+            "llm_completion_tokens": self.llm_completion_tokens,
+            "llm_cost_usd": self.llm_cost_usd,
+        }
+
+
 async def _listen_for_cancel(run_id: str, token: CancellationToken) -> None:
     while True:
         line = await asyncio.to_thread(sys.stdin.readline)
@@ -107,6 +139,7 @@ async def _execute_agent(
     agent = agent_type()
     context = AgentContext(
         run_id=run_id,
+        node_id=agent_name,
         config=config,
         db=None,
         tools=tools,
@@ -156,8 +189,9 @@ async def run_recipe(
 ) -> None:
     recipe = _load_recipe(recipe_name)
     plan = build_execution_plan(recipe)
-    emitter = EventEmitter(run_id=run_id)
-    tools = ToolRegistry()
+    metrics = RunMetrics()
+    emitter = EventEmitter(run_id=run_id, hooks=[metrics.record])
+    tools = register_builtin_tools(ToolRegistry())
     state: dict[str, Any] = {}
     cancellation = CancellationToken()
     cancel_task: asyncio.Task[None] | None = None
@@ -247,6 +281,7 @@ async def run_recipe(
                 "skipped_nodes": sum(1 for status in status_by_node.values() if status == "skipped"),
                 "cancelled_nodes": sum(1 for status in status_by_node.values() if status == "cancelled"),
                 "node_summaries": summary_by_node,
+                **metrics.summary(),
             }
         )
     finally:

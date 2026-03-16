@@ -27,6 +27,7 @@ pub async fn spawn_run(
 ) -> AppResult<()> {
     let repo_root = paths::repo_root()?;
     let python_dir = repo_root.join("python");
+    let atlas_data_dir = repo_root.join(".atlas-weave");
 
     let mut command = Command::new("python");
     command
@@ -34,6 +35,10 @@ pub async fn spawn_run(
         .arg("-m")
         .arg("atlas_weave.runner")
         .current_dir(&repo_root)
+        .env(
+            "ATLAS_WEAVE_DATA_DIR",
+            atlas_data_dir.to_string_lossy().to_string(),
+        )
         .env("PYTHONPATH", python_dir.to_string_lossy().to_string())
         .env("PYTHONUNBUFFERED", "1")
         .stdin(Stdio::piped())
