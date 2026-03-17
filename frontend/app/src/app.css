@@ -2,6 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  :root {
+    --background: 222 47% 8%;
+    --foreground: 214 100% 96%;
+    --card: 222 47% 8%;
+    --card-foreground: 214 100% 96%;
+    --popover: 222 47% 8%;
+    --popover-foreground: 214 100% 96%;
+    --primary: 174 58% 30%;
+    --primary-foreground: 166 100% 93%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 214 100% 96%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 33% 17%;
+    --accent-foreground: 214 100% 96%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 86% 97%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 174 58% 30%;
+    --radius: 0.75rem;
+
+    --status-pending: 215 20% 65%;
+    --status-running: 168 80% 59%;
+    --status-completed: 199 89% 48%;
+    --status-failed: 350 89% 60%;
+    --status-skipped: 45 93% 47%;
+    --status-cancelled: 27 96% 61%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+}
+
 :root {
   color: #edf4ff;
   background:

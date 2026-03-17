@@ -46,6 +46,7 @@
   class:failed={node.status === 'failed'}
   class:completed={node.status === 'completed'}
   class="dag-node cursor-pointer"
+  style="will-change: transform;"
   transform={`translate(${node.centerX} ${node.centerY})`}
   role="button"
   tabindex="0"

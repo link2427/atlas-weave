@@ -33,6 +33,8 @@ type EventState = {
   activeRunId: string | null;
   status: RunViewStatus;
   events: AtlasWeaveEvent[];
+  nodeIndex: Map<string, number[]>;
+  version: number;
   total: number;
   page: number;
   pageSize: number;
@@ -42,10 +44,28 @@ const initialState: EventState = {
   activeRunId: null,
   status: 'idle',
   events: [],
+  nodeIndex: new Map(),
+  version: 0,
   total: 0,
   page: 1,
   pageSize: 0
 };
+
+function buildNodeIndex(events: AtlasWeaveEvent[]): Map<string, number[]> {
+  const index = new Map<string, number[]>();
+  for (let i = 0; i < events.length; i++) {
+    const nodeId = events[i].node_id;
+    if (nodeId) {
+      let indices = index.get(nodeId);
+      if (!indices) {
+        indices = [];
+        index.set(nodeId, indices);
+      }
+      indices.push(i);
+    }
+  }
+  return index;
+}
 
 function createEventStore() {
   const { subscribe, set, update } = writable<EventState>(initialState);
@@ -53,7 +73,7 @@ function createEventStore() {
   return {
     subscribe,
     clear() {
-      set(initialState);
+      set({ ...initialState, nodeIndex: new Map() });
     },
     setRun(
       runId: string,
@@ -67,19 +87,26 @@ function createEventStore() {
         activeRunId: runId,
         status,
         events,
+        nodeIndex: buildNodeIndex(events),
+        version: 0,
         total,
         page,
         pageSize
       });
     },
     prependPage(events: AtlasWeaveEvent[], page: number, total: number, pageSize: number) {
-      update((state) => ({
-        ...state,
-        events: [...events, ...state.events],
-        page,
-        total,
-        pageSize
-      }));
+      update((state) => {
+        const merged = [...events, ...state.events];
+        return {
+          ...state,
+          events: merged,
+          nodeIndex: buildNodeIndex(merged),
+          version: state.version + 1,
+          page,
+          total,
+          pageSize
+        };
+      });
     },
     push(event: AtlasWeaveEvent) {
       update((state) => {
@@ -96,13 +123,31 @@ function createEventStore() {
                 ? 'cancelled'
                 : state.status;
 
+        // Mutate in place for O(1) push
+        const idx = state.events.length;
+        state.events.push(event);
+
+        if (event.node_id) {
+          let indices = state.nodeIndex.get(event.node_id);
+          if (!indices) {
+            indices = [];
+            state.nodeIndex.set(event.node_id, indices);
+          }
+          indices.push(idx);
+        }
+
         return {
           ...state,
           status,
-          total: Math.max(state.total, state.events.length + 1),
-          events: [...state.events, event]
+          version: state.version + 1,
+          total: Math.max(state.total, state.events.length)
         };
       });
+    },
+    getNodeEvents(state: EventState, nodeId: string): AtlasWeaveEvent[] {
+      const indices = state.nodeIndex.get(nodeId);
+      if (!indices) return [];
+      return indices.map((i) => state.events[i]);
     }
   };
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Badge } from '$lib/components/ui/badge';
   import type { AtlasWeaveEvent } from '$lib/stores/events';
 
   export let events: AtlasWeaveEvent[] = [];
@@ -13,25 +14,33 @@
     timestamp?: string;
   };
 
-  $: toolEvents = events.filter((event) =>
-    ['tool_call', 'tool_result', 'llm_call', 'llm_result'].includes(event.type)
-  );
-  $: groups = buildGroups(toolEvents);
+  // Incremental grouping: maintain map and track last processed index
+  let groupMap = new Map<string, ToolGroup>();
+  let lastProcessedLength = 0;
+  let sortedGroups: ToolGroup[] = [];
 
-  function buildGroups(input: AtlasWeaveEvent[]): ToolGroup[] {
-    const grouped = new Map<string, ToolGroup>();
+  $: {
+    const toolTypes = new Set(['tool_call', 'tool_result', 'llm_call', 'llm_result']);
 
-    for (const event of input) {
-      const key = event.request_id ?? `${event.type}-${event.timestamp ?? Math.random()}`;
-      const existing =
-        grouped.get(key) ??
-        {
-          id: key,
-          label: event.model ?? event.tool ?? event.provider ?? 'Tool event',
-          kind: kindFor(event),
-          status: 'pending',
-          timestamp: event.timestamp
-        };
+    // Reset if events array was replaced (e.g., new node selected)
+    if (events.length < lastProcessedLength) {
+      groupMap = new Map();
+      lastProcessedLength = 0;
+    }
+
+    // Only process new events
+    for (let i = lastProcessedLength; i < events.length; i++) {
+      const event = events[i];
+      if (!toolTypes.has(event.type)) continue;
+
+      const key = event.request_id ?? `${event.type}-${event.timestamp ?? i}`;
+      const existing = groupMap.get(key) ?? {
+        id: key,
+        label: event.model ?? event.tool ?? event.provider ?? 'Tool event',
+        kind: kindFor(event),
+        status: 'pending' as const,
+        timestamp: event.timestamp
+      };
 
       if (event.type === 'tool_call' || event.type === 'llm_call') {
         existing.call = event;
@@ -43,27 +52,20 @@
       existing.label = event.model ?? event.tool ?? existing.label;
       existing.kind = kindFor(event);
       existing.timestamp = event.timestamp ?? existing.timestamp;
-      grouped.set(key, existing);
+      groupMap.set(key, existing);
     }
+    lastProcessedLength = events.length;
 
-    return [...grouped.values()].sort((left, right) =>
-      (left.timestamp ?? '').localeCompare(right.timestamp ?? '')
+    sortedGroups = [...groupMap.values()].sort((a, b) =>
+      (a.timestamp ?? '').localeCompare(b.timestamp ?? '')
     );
   }
 
   function kindFor(event: AtlasWeaveEvent): string {
-    if (event.type.startsWith('llm_')) {
-      return 'LLM';
-    }
-    if (event.tool === 'http') {
-      return 'HTTP';
-    }
-    if (event.tool === 'web_search') {
-      return 'Search';
-    }
-    if (event.tool === 'web_scrape') {
-      return 'Scrape';
-    }
+    if (event.type.startsWith('llm_')) return 'LLM';
+    if (event.tool === 'http') return 'HTTP';
+    if (event.tool === 'web_search') return 'Search';
+    if (event.tool === 'web_scrape') return 'Scrape';
     return 'Tool';
   }
 
@@ -71,27 +73,19 @@
     return JSON.stringify(value ?? {}, null, 2);
   }
 
-  function compact(value: unknown): string {
-    return JSON.stringify(value ?? {}, null, 2);
-  }
-
   function subtitle(group: ToolGroup): string {
-    if (group.result?.error) {
-      return group.result.error;
-    }
+    if (group.result?.error) return group.result.error;
     if (group.result?.duration_ms !== undefined) {
-      const suffix =
-        group.result.cache_hit !== undefined ? `, cache ${group.result.cache_hit ? 'hit' : 'miss'}` : '';
+      const suffix = group.result.cache_hit !== undefined
+        ? `, cache ${group.result.cache_hit ? 'hit' : 'miss'}`
+        : '';
       return `${group.result.duration_ms}ms${suffix}`;
     }
     return 'Waiting for result';
   }
 
   function llmUsage(group: ToolGroup): string | null {
-    if (!group.result || group.kind !== 'LLM') {
-      return null;
-    }
-
+    if (!group.result || group.kind !== 'LLM') return null;
     const prompt = group.result.prompt_tokens ?? 0;
     const completion = group.result.completion_tokens ?? 0;
     const cost = group.result.estimated_cost_usd ?? 0;
@@ -111,51 +105,53 @@
   }
 </script>
 
-{#if groups.length === 0}
-  <div class="empty-panel">
+{#if sortedGroups.length === 0}
+  <div class="rounded-lg border border-dashed border-white/10 bg-black/20 p-4 text-sm text-muted-foreground">
     No structured tool activity has been recorded for this node yet.
   </div>
 {:else}
-  <div class="tool-stack">
-    {#each groups as group}
-      <details class="tool-card" open>
-        <summary>
+  <div class="space-y-3">
+    {#each sortedGroups as group (group.id)}
+      <details class="rounded-lg border border-white/8 bg-black/20 p-4">
+        <summary class="flex cursor-pointer list-none items-start justify-between gap-3 [&::-webkit-details-marker]:hidden">
           <div>
-            <p class="eyebrow">{group.kind}</p>
-            <h4>{group.label}</h4>
-            <p class="subtitle">{subtitle(group)}</p>
+            <p class="text-xs font-medium uppercase tracking-widest text-sky-300/80">{group.kind}</p>
+            <h4 class="mt-1 text-sm font-semibold text-slate-50">{group.label}</h4>
+            <p class="mt-1 text-xs text-muted-foreground">{subtitle(group)}</p>
           </div>
-          <div class="meta">
-            <span class={`status ${group.status}`}>{group.status}</span>
+          <div class="flex flex-col items-end gap-2">
+            <Badge variant={group.status === 'completed' ? 'completed' : group.status === 'failed' ? 'failed' : 'pending'}>
+              {group.status}
+            </Badge>
             {#if llmUsage(group)}
-              <span class="usage">{llmUsage(group)}</span>
+              <span class="rounded-full bg-blue-500/15 px-2.5 py-0.5 text-xs text-blue-200">{llmUsage(group)}</span>
             {/if}
           </div>
         </summary>
 
-        <div class="payload-grid">
-          <div class="payload-card">
-            <p class="eyebrow">Request</p>
-            <pre>{pretty(group.call?.input ?? {})}</pre>
+        <div class="mt-3 grid gap-3 sm:grid-cols-2">
+          <div class="rounded-lg border border-white/6 bg-slate-900/70 p-3">
+            <p class="text-xs font-medium uppercase tracking-widest text-sky-300/80">Request</p>
+            <pre class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs text-slate-200">{pretty(group.call?.input ?? {})}</pre>
           </div>
-          <div class="payload-card">
-            <p class="eyebrow">Result</p>
-            <pre>{pretty(group.result?.output ?? {})}</pre>
+          <div class="rounded-lg border border-white/6 bg-slate-900/70 p-3">
+            <p class="text-xs font-medium uppercase tracking-widest text-sky-300/80">Result</p>
+            <pre class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs text-slate-200">{pretty(group.result?.output ?? {})}</pre>
           </div>
         </div>
 
         {#if providerAttempts(group).length > 0 || failures(group).length > 0}
-          <div class="payload-grid diagnostics">
+          <div class="mt-3 grid gap-3 sm:grid-cols-2">
             {#if providerAttempts(group).length > 0}
-              <div class="payload-card">
-                <p class="eyebrow">Provider Attempts</p>
-                <pre>{compact(providerAttempts(group))}</pre>
+              <div class="rounded-lg border border-white/6 bg-slate-900/70 p-3">
+                <p class="text-xs font-medium uppercase tracking-widest text-sky-300/80">Provider Attempts</p>
+                <pre class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs text-slate-200">{pretty(providerAttempts(group))}</pre>
               </div>
             {/if}
             {#if failures(group).length > 0}
-              <div class="payload-card warning">
-                <p class="eyebrow">Failures</p>
-                <pre>{compact(failures(group))}</pre>
+              <div class="rounded-lg border border-rose-400/20 bg-rose-950/40 p-3">
+                <p class="text-xs font-medium uppercase tracking-widest text-sky-300/80">Failures</p>
+                <pre class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs text-slate-200">{pretty(failures(group))}</pre>
               </div>
             {/if}
           </div>
@@ -164,127 +160,3 @@
     {/each}
   </div>
 {/if}
-
-<style>
-  .empty-panel {
-    border-radius: 1.5rem;
-    border: 1px dashed rgba(148, 163, 184, 0.26);
-    background: rgba(2, 6, 23, 0.35);
-    padding: 1.25rem;
-    color: rgba(203, 213, 225, 0.88);
-  }
-
-  .tool-stack {
-    display: grid;
-    gap: 1rem;
-  }
-
-  .tool-card {
-    border-radius: 1.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(2, 6, 23, 0.38);
-    padding: 1rem;
-  }
-
-  summary {
-    display: flex;
-    cursor: pointer;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1rem;
-    list-style: none;
-  }
-
-  summary::-webkit-details-marker {
-    display: none;
-  }
-
-  h4 {
-    margin-top: 0.35rem;
-    font-size: 1rem;
-    font-weight: 600;
-    color: #f8fafc;
-  }
-
-  .eyebrow {
-    font-size: 0.72rem;
-    letter-spacing: 0.24em;
-    text-transform: uppercase;
-    color: rgba(125, 211, 252, 0.85);
-  }
-
-  .subtitle {
-    margin-top: 0.45rem;
-    color: rgba(203, 213, 225, 0.82);
-  }
-
-  .meta {
-    display: grid;
-    gap: 0.5rem;
-    justify-items: end;
-  }
-
-  .status,
-  .usage {
-    border-radius: 9999px;
-    padding: 0.3rem 0.75rem;
-    font-size: 0.72rem;
-  }
-
-  .status {
-    text-transform: uppercase;
-    letter-spacing: 0.18em;
-  }
-
-  .status.pending {
-    background: rgba(148, 163, 184, 0.16);
-    color: #cbd5e1;
-  }
-
-  .status.completed {
-    background: rgba(45, 212, 191, 0.16);
-    color: #99f6e4;
-  }
-
-  .status.failed {
-    background: rgba(251, 113, 133, 0.18);
-    color: #fecdd3;
-  }
-
-  .usage {
-    background: rgba(59, 130, 246, 0.15);
-    color: #bfdbfe;
-  }
-
-  .payload-grid {
-    margin-top: 1rem;
-    display: grid;
-    gap: 1rem;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  }
-
-  .payload-card {
-    border-radius: 1.2rem;
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    background: rgba(15, 23, 42, 0.72);
-    padding: 0.9rem;
-  }
-
-  .payload-card.warning {
-    border-color: rgba(251, 113, 133, 0.24);
-    background: rgba(62, 14, 30, 0.42);
-  }
-
-  .diagnostics {
-    margin-top: 1rem;
-  }
-
-  pre {
-    margin-top: 0.8rem;
-    max-height: 16rem;
-    overflow: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
-    color: #e2e8f0;
-  }
-</style>

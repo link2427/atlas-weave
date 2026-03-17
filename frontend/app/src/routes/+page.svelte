@@ -2,6 +2,10 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
 
+  import { Button } from '$lib/components/ui/button';
+  import { Badge } from '$lib/components/ui/badge';
+  import { Card, CardHeader, CardTitle, CardContent } from '$lib/components/ui/card';
+  import { Skeleton } from '$lib/components/ui/skeleton';
   import { getCredentials } from '$lib/api/tauri/settings';
   import { getRecipeDetail, listRecipes, type Recipe, type RecipeConfigField, type RecipeDetail } from '$lib/api/tauri/recipes';
   import { getRunHistory, startRun, type RunHistoryItem } from '$lib/api/tauri/runs';
@@ -48,11 +52,17 @@
       selectedRecipe = recipeName;
       selectedRecipeDetail = await getRecipeDetail(recipeName);
       configValues = defaultsFor(selectedRecipeDetail.configSchema);
+
       const secretKeys = Object.entries(selectedRecipeDetail.configSchema)
         .filter(([, field]) => field.secret)
         .map(([key]) => key);
-      credentialPresence = secretKeys.length > 0 ? await getCredentials(secretKeys) : {};
-      await loadRecentRuns(recipeName);
+
+      // Parallel API calls for credentials and run history
+      const [creds] = await Promise.all([
+        secretKeys.length > 0 ? getCredentials(secretKeys) : Promise.resolve({}),
+        loadRecentRuns(recipeName)
+      ]);
+      credentialPresence = creds;
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : 'Failed to load recipe details.';
       selectedRecipeDetail = null;
@@ -90,44 +100,27 @@
   }
 
   function secretRequirementsSatisfied(recipe: RecipeDetail | null): boolean {
-    if (!recipe) {
-      return false;
-    }
-
+    if (!recipe) return false;
     return Object.entries(recipe.configSchema).every(([key, field]) => {
-      if (!field.secret || !field.required) {
-        return true;
-      }
+      if (!field.secret || !field.required) return true;
       return credentialPresence[key]?.present ?? false;
     });
   }
 
   function nonSecretRequiredSatisfied(recipe: RecipeDetail | null): boolean {
-    if (!recipe) {
-      return false;
-    }
-
+    if (!recipe) return false;
     return Object.entries(recipe.configSchema).every(([key, field]) => {
-      if (field.secret || !field.required) {
-        return true;
-      }
-
+      if (field.secret || !field.required) return true;
       const value = configValues[key];
-      if (field.type === 'boolean') {
-        return typeof value === 'boolean';
-      }
+      if (field.type === 'boolean') return typeof value === 'boolean';
       return value !== '' && value !== undefined && value !== null;
     });
   }
 
   async function handleStartRun(): Promise<void> {
-    if (!selectedRecipe || !selectedRecipeDetail || startingRun) {
-      return;
-    }
-
+    if (!selectedRecipe || !selectedRecipeDetail || startingRun) return;
     startingRun = true;
     errorMessage = '';
-
     try {
       const response = await startRun(selectedRecipe, configValues);
       await goto(`/run/${response.runId}`);
@@ -141,6 +134,14 @@
   async function openRun(runId: string): Promise<void> {
     await goto(`/run/${runId}`);
   }
+
+  function statusVariant(s: string): 'running' | 'completed' | 'failed' | 'cancelled' | 'pending' {
+    if (s === 'completed') return 'completed';
+    if (s === 'failed') return 'failed';
+    if (s === 'cancelled') return 'cancelled';
+    if (s === 'running') return 'running';
+    return 'pending';
+  }
 </script>
 
 <svelte:head>
@@ -150,40 +151,36 @@
 
 <div class="min-h-screen px-6 py-8 text-slate-50 lg:px-10">
   <div class="mx-auto grid max-w-7xl gap-6 lg:grid-cols-[340px,1fr]">
-    <aside class="rounded-[28px] border border-white/10 bg-white/5 p-6 shadow-glow backdrop-blur">
+    <aside class="rounded-xl border border-white/10 bg-white/5 p-6 shadow-glow backdrop-blur">
       <div class="mb-8">
-        <p class="text-xs uppercase tracking-[0.35em] text-sea">Atlas Weave</p>
+        <p class="text-xs font-medium uppercase tracking-widest text-sea">Atlas Weave</p>
         <h1 class="mt-3 text-3xl font-semibold text-mist">Recipe Launcher</h1>
-        <p class="mt-3 text-sm leading-6 text-slate-300">
+        <p class="mt-3 text-sm leading-6 text-muted-foreground">
           Configure a run, validate any secret requirements, and jump straight into the live execution graph.
         </p>
-        <a class="mt-4 inline-flex text-sm text-sky-300 underline" href="/settings">Open Settings</a>
+        <a class="mt-4 inline-flex text-sm text-sky-300 underline hover:text-sky-200" href="/settings">Open Settings</a>
       </div>
 
       <div class="space-y-3">
         {#if loadingRecipes}
-          <div class="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-300">
-            Loading recipes...
-          </div>
+          <Skeleton class="h-20 w-full" />
+          <Skeleton class="h-20 w-full" />
         {:else if recipes.length === 0}
-          <div class="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-6 text-sm text-slate-300">
+          <div class="rounded-lg border border-dashed border-white/10 bg-black/20 p-6 text-sm text-muted-foreground">
             No recipes discovered under <code>python/recipes</code>.
           </div>
         {:else}
           {#each recipes as recipe}
             <button
-              class:selected={selectedRecipe === recipe.name}
-              class="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-left transition hover:border-sea/60 hover:bg-white/10"
+              class="w-full rounded-lg border bg-black/20 p-4 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sea {selectedRecipe === recipe.name ? 'border-sea/80 bg-sea/10' : 'border-white/10 hover:border-sea/60 hover:bg-white/10'}"
               on:click={() => loadRecipeDetail(recipe.name)}
             >
               <div class="flex items-start justify-between gap-4">
                 <div>
                   <h2 class="text-base font-medium text-mist">{recipe.name}</h2>
-                  <p class="mt-2 text-sm leading-6 text-slate-300">{recipe.description}</p>
+                  <p class="mt-2 text-sm leading-6 text-muted-foreground">{recipe.description}</p>
                 </div>
-                <span class="rounded-full bg-white/10 px-2 py-1 text-xs text-slate-300">
-                  v{recipe.version}
-                </span>
+                <Badge variant="outline">v{recipe.version}</Badge>
               </div>
             </button>
           {/each}
@@ -193,46 +190,44 @@
       <div class="mt-8 border-t border-white/10 pt-6">
         <div class="mb-4 flex items-center justify-between gap-3">
           <div>
-            <p class="text-xs uppercase tracking-[0.35em] text-sea">Existing Runs</p>
-            <p class="mt-2 text-sm text-slate-300">
+            <p class="text-xs font-medium uppercase tracking-widest text-sea">Existing Runs</p>
+            <p class="mt-2 text-sm text-muted-foreground">
               Reopen a recent run for the selected recipe.
             </p>
           </div>
 
           {#if recentRuns[0]}
-            <button
-              class="rounded-full border border-sky-300/35 bg-sky-400/10 px-3 py-2 text-xs font-medium text-sky-200"
-              on:click={() => openRun(recentRuns[0].id)}
-            >
+            <Button variant="outline" size="sm" onclick={() => openRun(recentRuns[0].id)}>
               Open Latest
-            </button>
+            </Button>
           {/if}
         </div>
 
         {#if loadingRunHistory}
-          <div class="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-300">
-            Loading recent runs...
+          <div class="space-y-3">
+            <Skeleton class="h-14 w-full" />
+            <Skeleton class="h-14 w-full" />
           </div>
         {:else if recentRuns.length === 0}
-          <div class="rounded-2xl border border-dashed border-white/10 bg-black/20 px-4 py-5 text-sm text-slate-300">
+          <div class="rounded-lg border border-dashed border-white/10 bg-black/20 p-4 text-sm text-muted-foreground">
             No recorded runs for this recipe yet.
           </div>
         {:else}
-          <div class="space-y-3">
+          <div class="space-y-2">
             {#each recentRuns as run}
               <button
-                class="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left transition hover:border-sky-300/40 hover:bg-white/10"
+                class="w-full rounded-lg border border-white/10 bg-black/20 p-3 text-left transition hover:border-sky-300/40 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 on:click={() => openRun(run.id)}
               >
                 <div class="flex items-center justify-between gap-3">
                   <div class="min-w-0">
-                    <p class="truncate text-sm font-medium capitalize text-mist">{run.status}</p>
-                    <p class="mt-1 truncate text-xs text-slate-400">
+                    <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
+                    <p class="mt-1.5 truncate text-xs text-muted-foreground">
                       {run.startedAt ? new Date(run.startedAt).toLocaleString() : 'Unknown start'}
                     </p>
                   </div>
-                  <span class="rounded-full bg-white/10 px-2 py-1 text-[11px] text-slate-300">
-                    {run.completedNodes + run.failedNodes + run.skippedNodes + run.cancelledNodes + run.runningNodes + run.pendingNodes}
+                  <span class="text-xs text-muted-foreground">
+                    {run.completedNodes + run.failedNodes + run.skippedNodes + run.cancelledNodes + run.runningNodes + run.pendingNodes} nodes
                   </span>
                 </div>
               </button>
@@ -261,50 +256,11 @@
         on:submit={handleStartRun}
       />
 
-      <section class="rounded-[32px] border border-white/10 bg-ink/70 p-6 shadow-glow">
-        <div class="grid gap-6 lg:grid-cols-[1.1fr,0.9fr]">
-          <div class="rounded-[30px] border border-white/10 bg-gradient-to-br from-white/8 to-transparent p-6">
-            <p class="text-xs uppercase tracking-[0.35em] text-flare">Phase 5</p>
-            <h2 class="mt-3 text-4xl font-semibold text-mist">Built-in Tools</h2>
-            <p class="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
-              Atlas Weave now records structured HTTP, search, scrape, and multi-provider LLM activity so each node can be inspected beyond raw logs.
-            </p>
-          </div>
-
-          <div class="space-y-6">
-            <div class="rounded-[28px] border border-white/10 bg-white/5 p-5">
-              <h3 class="text-lg font-semibold text-mist">What Opens Next</h3>
-              <ul class="mt-4 space-y-3 text-sm leading-6 text-slate-300">
-                <li>The run route hydrates structured tool and LLM events alongside the DAG state.</li>
-                <li>The Tools tab groups request and result payloads by request id for each node.</li>
-                <li>Run summary now surfaces cumulative tool calls, token totals, and estimated LLM cost.</li>
-              </ul>
-            </div>
-
-            <div class="rounded-[28px] border border-white/10 bg-white/5 p-5">
-              <h3 class="text-lg font-semibold text-mist">Current Recipes</h3>
-              <div class="mt-4 space-y-3 text-sm leading-6 text-slate-300">
-                <p><code>test_echo</code> remains the smoke path for cancel and log streaming.</p>
-                <p><code>test_pipeline</code> still drives the three-node DAG visualizer and failure-state checks.</p>
-                <p><code>test_tools</code> exercises HTTP, DuckDuckGo search, scraping, and OpenRouter or Anthropic calls.</p>
-              </div>
-            </div>
-          </div>
+      {#if errorMessage}
+        <div class="rounded-lg border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+          {errorMessage}
         </div>
-
-        {#if errorMessage}
-          <div class="mt-6 rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-            {errorMessage}
-          </div>
-        {/if}
-      </section>
+      {/if}
     </section>
   </div>
 </div>
-
-<style>
-  .selected {
-    border-color: rgba(45, 212, 191, 0.85);
-    background: rgba(13, 148, 136, 0.18);
-  }
-</style>

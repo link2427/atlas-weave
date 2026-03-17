@@ -1,6 +1,10 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
 
+  import { Badge } from '$lib/components/ui/badge';
+  import { Button } from '$lib/components/ui/button';
+  import { Card, CardHeader, CardTitle, CardContent } from '$lib/components/ui/card';
+  import { Separator } from '$lib/components/ui/separator';
   import type { RunDetail, RunStatus } from '$lib/api/tauri/runs';
 
   export let run: RunDetail | null = null;
@@ -9,44 +13,82 @@
 
   const dispatch = createEventDispatcher<{ cancel: undefined }>();
 
-  $: summary = (run?.summary ?? {}) as Record<string, unknown>;
-  $: toolCalls = numberValue(summary.tool_calls);
-  $: llmCalls = numberValue(summary.llm_calls);
-  $: promptTokens = numberValue(summary.llm_prompt_tokens);
-  $: completionTokens = numberValue(summary.llm_completion_tokens);
-  $: llmCostUsd = numberValue(summary.llm_cost_usd);
-  $: totalRecords = numberValue(summary.total_records);
-  $: activeRecords = numberValue(summary.active_records);
-  $: researchedRecords = numberValue(summary.researched_records);
-  $: acceptedLlmRecords = numberValue(summary.accepted_llm_records);
-  $: anomalyCount = numberValue(summary.anomaly_count);
-  $: coverageOperatorPurpose = numberValue(summary.coverage_operator_purpose_pct);
-  $: coverageMass = numberValue(summary.coverage_mass_pct);
-  $: outputDbPath = stringValue(summary.output_db_path);
-  $: latestDbPath = stringValue(summary.latest_db_path);
-  $: sourceStatus = recordValue(summary.source_status);
-  $: cachedSources = stringArrayValue(summary.cached_sources);
-  $: staleSources = stringArrayValue(summary.stale_sources);
-  $: spaceTrackMode = stringValue(summary.space_track_mode);
-  $: llmResearchStatus = stringValue(summary.llm_research_status);
-  $: showUsageStats =
-    toolCalls > 0 || llmCalls > 0 || promptTokens > 0 || completionTokens > 0 || llmCostUsd > 0;
-  $: showSatelliteStats =
-    totalRecords > 0 ||
-    activeRecords > 0 ||
-    researchedRecords > 0 ||
-    acceptedLlmRecords > 0 ||
-    anomalyCount > 0 ||
-    coverageOperatorPurpose > 0 ||
-    coverageMass > 0 ||
-    Boolean(outputDbPath) ||
-    Boolean(latestDbPath);
-  $: showSourceStats =
-    Object.keys(sourceStatus).length > 0 ||
-    cachedSources.length > 0 ||
-    staleSources.length > 0 ||
-    Boolean(spaceTrackMode) ||
-    Boolean(llmResearchStatus);
+  type SummaryData = {
+    toolCalls: number;
+    llmCalls: number;
+    promptTokens: number;
+    completionTokens: number;
+    llmCostUsd: number;
+    totalRecords: number;
+    activeRecords: number;
+    researchedRecords: number;
+    acceptedLlmRecords: number;
+    anomalyCount: number;
+    coverageOperatorPurpose: number;
+    coverageMass: number;
+    outputDbPath: string;
+    latestDbPath: string;
+    sourceStatus: Record<string, string>;
+    cachedSources: string[];
+    staleSources: string[];
+    spaceTrackMode: string;
+    llmResearchStatus: string;
+    showUsageStats: boolean;
+    showSatelliteStats: boolean;
+    showSourceStats: boolean;
+  };
+
+  $: data = deriveSummary(run);
+
+  function deriveSummary(run: RunDetail | null): SummaryData {
+    const s = (run?.summary ?? {}) as Record<string, unknown>;
+    const num = (v: unknown) => (typeof v === 'number' ? v : 0);
+    const str = (v: unknown) => (typeof v === 'string' ? v : '');
+    const strArr = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+    const rec = (v: unknown): Record<string, string> => {
+      if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+      return Object.fromEntries(Object.entries(v).filter((e): e is [string, string] => typeof e[1] === 'string'));
+    };
+
+    const toolCalls = num(s.tool_calls);
+    const llmCalls = num(s.llm_calls);
+    const promptTokens = num(s.llm_prompt_tokens);
+    const completionTokens = num(s.llm_completion_tokens);
+    const llmCostUsd = num(s.llm_cost_usd);
+    const totalRecords = num(s.total_records);
+    const activeRecords = num(s.active_records);
+    const researchedRecords = num(s.researched_records);
+    const acceptedLlmRecords = num(s.accepted_llm_records);
+    const anomalyCount = num(s.anomaly_count);
+    const coverageOperatorPurpose = num(s.coverage_operator_purpose_pct);
+    const coverageMass = num(s.coverage_mass_pct);
+    const outputDbPath = str(s.output_db_path);
+    const latestDbPath = str(s.latest_db_path);
+    const sourceStatus = rec(s.source_status);
+    const cachedSources = strArr(s.cached_sources);
+    const staleSources = strArr(s.stale_sources);
+    const spaceTrackMode = str(s.space_track_mode);
+    const llmResearchStatus = str(s.llm_research_status);
+
+    return {
+      toolCalls, llmCalls, promptTokens, completionTokens, llmCostUsd,
+      totalRecords, activeRecords, researchedRecords, acceptedLlmRecords,
+      anomalyCount, coverageOperatorPurpose, coverageMass,
+      outputDbPath, latestDbPath, sourceStatus, cachedSources, staleSources,
+      spaceTrackMode, llmResearchStatus,
+      showUsageStats: toolCalls > 0 || llmCalls > 0 || promptTokens > 0 || completionTokens > 0 || llmCostUsd > 0,
+      showSatelliteStats: totalRecords > 0 || activeRecords > 0 || researchedRecords > 0 || acceptedLlmRecords > 0 || anomalyCount > 0 || coverageOperatorPurpose > 0 || coverageMass > 0 || Boolean(outputDbPath) || Boolean(latestDbPath),
+      showSourceStats: Object.keys(sourceStatus).length > 0 || cachedSources.length > 0 || staleSources.length > 0 || Boolean(spaceTrackMode) || Boolean(llmResearchStatus)
+    };
+  }
+
+  function statusVariant(s: string): 'running' | 'completed' | 'failed' | 'cancelled' | 'pending' {
+    if (s === 'completed') return 'completed';
+    if (s === 'failed') return 'failed';
+    if (s === 'cancelled') return 'cancelled';
+    if (s === 'running') return 'running';
+    return 'pending';
+  }
 
   function formatTime(value?: string | null): string {
     return value ? new Date(value).toLocaleString() : '-';
@@ -55,232 +97,182 @@
   function pretty(value: unknown): string {
     return JSON.stringify(value ?? {}, null, 2);
   }
-
-  function numberValue(value: unknown): number {
-    return typeof value === 'number' ? value : 0;
-  }
-
-  function stringValue(value: unknown): string {
-    return typeof value === 'string' ? value : '';
-  }
-
-  function stringArrayValue(value: unknown): string[] {
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
-  }
-
-  function recordValue(value: unknown): Record<string, string> {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return {};
-    }
-    return Object.fromEntries(
-      Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
-    );
-  }
 </script>
 
-<section class="panel">
+<section class="rounded-xl border border-white/8 bg-white/[0.04] p-4">
   <div class="flex items-start justify-between gap-4">
     <div>
-      <p class="eyebrow">Run Summary</p>
+      <p class="text-xs font-medium uppercase tracking-widest text-muted-foreground">Run Summary</p>
       <h3 class="mt-2 text-2xl font-semibold text-mist">{run?.recipeName ?? 'Run detail'}</h3>
-      <p class="mt-2 text-sm text-slate-300">Status: <span class="capitalize">{status}</span></p>
+      <div class="mt-2 flex items-center gap-2">
+        <Badge variant={statusVariant(status)}>{status}</Badge>
+      </div>
     </div>
 
     {#if status === 'running'}
-      <button class="cancel-button" disabled={cancelling} on:click={() => dispatch('cancel')}>
+      <Button variant="destructive" disabled={cancelling} onclick={() => dispatch('cancel')}>
         {cancelling ? 'Cancelling...' : 'Cancel Run'}
-      </button>
+      </Button>
     {/if}
   </div>
 
   {#if run}
-    <div class="mt-5 grid gap-4 md:grid-cols-3">
-      <div class="stat-card">
-        <p class="eyebrow">Started</p>
-        <p class="mt-3 text-sm text-slate-200">{formatTime(run.startedAt)}</p>
-      </div>
-      <div class="stat-card">
-        <p class="eyebrow">Completed</p>
-        <p class="mt-3 text-sm text-slate-200">{formatTime(run.completedAt)}</p>
-      </div>
-      <div class="stat-card">
-        <p class="eyebrow">Nodes</p>
-        <p class="mt-3 text-sm text-slate-200">{run.nodes.length}</p>
-      </div>
+    <Separator class="my-4" />
+
+    <div class="grid gap-3 md:grid-cols-3">
+      <Card>
+        <CardHeader><CardTitle>Started</CardTitle></CardHeader>
+        <CardContent><p class="text-sm text-slate-200">{formatTime(run.startedAt)}</p></CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle>Completed</CardTitle></CardHeader>
+        <CardContent><p class="text-sm text-slate-200">{formatTime(run.completedAt)}</p></CardContent>
+      </Card>
+      <Card>
+        <CardHeader><CardTitle>Nodes</CardTitle></CardHeader>
+        <CardContent><p class="text-sm text-slate-200">{run.nodes.length}</p></CardContent>
+      </Card>
     </div>
 
-    {#if showUsageStats}
-      <div class="mt-4 grid gap-4 md:grid-cols-4">
-        <div class="stat-card">
-          <p class="eyebrow">Tool Calls</p>
-          <p class="mt-3 text-lg font-semibold text-mist">{toolCalls}</p>
-        </div>
-        <div class="stat-card">
-          <p class="eyebrow">LLM Calls</p>
-          <p class="mt-3 text-lg font-semibold text-mist">{llmCalls}</p>
-        </div>
-        <div class="stat-card">
-          <p class="eyebrow">Tokens</p>
-          <p class="mt-3 text-sm text-slate-200">{promptTokens} in / {completionTokens} out</p>
-        </div>
-        <div class="stat-card">
-          <p class="eyebrow">LLM Cost</p>
-          <p class="mt-3 text-lg font-semibold text-mist">${llmCostUsd.toFixed(4)}</p>
-        </div>
+    {#if data.showUsageStats}
+      <div class="mt-3 grid gap-3 md:grid-cols-4">
+        <Card>
+          <CardHeader><CardTitle>Tool Calls</CardTitle></CardHeader>
+          <CardContent><p class="text-lg font-semibold text-mist">{data.toolCalls}</p></CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>LLM Calls</CardTitle></CardHeader>
+          <CardContent><p class="text-lg font-semibold text-mist">{data.llmCalls}</p></CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Tokens</CardTitle></CardHeader>
+          <CardContent><p class="text-sm text-slate-200">{data.promptTokens} in / {data.completionTokens} out</p></CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>LLM Cost</CardTitle></CardHeader>
+          <CardContent><p class="text-lg font-semibold text-mist">${data.llmCostUsd.toFixed(4)}</p></CardContent>
+        </Card>
       </div>
     {/if}
 
-    {#if showSatelliteStats}
-      <div class="mt-4 grid gap-4 md:grid-cols-4">
-        <div class="stat-card">
-          <p class="eyebrow">Records</p>
-          <p class="mt-3 text-lg font-semibold text-mist">{totalRecords}</p>
-          <p class="mt-2 text-xs text-slate-400">{activeRecords} active</p>
-        </div>
-        <div class="stat-card">
-          <p class="eyebrow">Coverage</p>
-          <p class="mt-3 text-sm text-slate-200">{coverageOperatorPurpose.toFixed(1)}% operator/purpose</p>
-          <p class="mt-2 text-xs text-slate-400">{coverageMass.toFixed(1)}% mass</p>
-        </div>
-        <div class="stat-card">
-          <p class="eyebrow">Research</p>
-          <p class="mt-3 text-sm text-slate-200">{researchedRecords} researched</p>
-          <p class="mt-2 text-xs text-slate-400">{acceptedLlmRecords} accepted</p>
-        </div>
-        <div class="stat-card">
-          <p class="eyebrow">Anomalies</p>
-          <p class="mt-3 text-lg font-semibold text-mist">{anomalyCount}</p>
-          <p class="mt-2 text-xs text-slate-400">Quality findings</p>
-        </div>
+    {#if data.showSatelliteStats}
+      <div class="mt-3 grid gap-3 md:grid-cols-4">
+        <Card>
+          <CardHeader><CardTitle>Records</CardTitle></CardHeader>
+          <CardContent>
+            <p class="text-lg font-semibold text-mist">{data.totalRecords}</p>
+            <p class="mt-1 text-xs text-muted-foreground">{data.activeRecords} active</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Coverage</CardTitle></CardHeader>
+          <CardContent>
+            <p class="text-sm text-slate-200">{data.coverageOperatorPurpose.toFixed(1)}% operator/purpose</p>
+            <p class="mt-1 text-xs text-muted-foreground">{data.coverageMass.toFixed(1)}% mass</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Research</CardTitle></CardHeader>
+          <CardContent>
+            <p class="text-sm text-slate-200">{data.researchedRecords} researched</p>
+            <p class="mt-1 text-xs text-muted-foreground">{data.acceptedLlmRecords} accepted</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Anomalies</CardTitle></CardHeader>
+          <CardContent>
+            <p class="text-lg font-semibold text-mist">{data.anomalyCount}</p>
+            <p class="mt-1 text-xs text-muted-foreground">Quality findings</p>
+          </CardContent>
+        </Card>
       </div>
     {/if}
 
-    {#if showSourceStats}
-      <div class="mt-4 grid gap-4 md:grid-cols-4">
-        <div class="stat-card">
-          <p class="eyebrow">Source Mode</p>
-          <p class="mt-3 text-sm text-slate-200">{spaceTrackMode || 'prefer_cache'}</p>
-          <p class="mt-2 text-xs text-slate-400">{llmResearchStatus || 'LLM status pending'}</p>
-        </div>
-        <div class="stat-card md:col-span-2">
-          <p class="eyebrow">Source Status</p>
-          <p class="mt-3 text-sm text-slate-200">
-            {#if Object.keys(sourceStatus).length}
-              {Object.entries(sourceStatus).map(([key, value]) => `${key}: ${value}`).join(' | ')}
-            {:else}
-              No source status captured.
-            {/if}
-          </p>
-        </div>
-        <div class="stat-card">
-          <p class="eyebrow">Cache</p>
-          <p class="mt-3 text-sm text-slate-200">
-            {cachedSources.length ? cachedSources.join(', ') : 'No cached sources used'}
-          </p>
-          <p class="mt-2 text-xs text-slate-400">
-            {staleSources.length ? `Stale: ${staleSources.join(', ')}` : 'No stale sources'}
-          </p>
-        </div>
+    {#if data.showSourceStats}
+      <div class="mt-3 grid gap-3 md:grid-cols-4">
+        <Card>
+          <CardHeader><CardTitle>Source Mode</CardTitle></CardHeader>
+          <CardContent>
+            <p class="text-sm text-slate-200">{data.spaceTrackMode || 'prefer_cache'}</p>
+            <p class="mt-1 text-xs text-muted-foreground">{data.llmResearchStatus || 'LLM status pending'}</p>
+          </CardContent>
+        </Card>
+        <Card class="md:col-span-2">
+          <CardHeader><CardTitle>Source Status</CardTitle></CardHeader>
+          <CardContent>
+            <p class="text-sm text-slate-200">
+              {#if Object.keys(data.sourceStatus).length}
+                {Object.entries(data.sourceStatus).map(([k, v]) => `${k}: ${v}`).join(' | ')}
+              {:else}
+                No source status captured.
+              {/if}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle>Cache</CardTitle></CardHeader>
+          <CardContent>
+            <p class="text-sm text-slate-200">{data.cachedSources.length ? data.cachedSources.join(', ') : 'No cached sources used'}</p>
+            <p class="mt-1 text-xs text-muted-foreground">{data.staleSources.length ? `Stale: ${data.staleSources.join(', ')}` : 'No stale sources'}</p>
+          </CardContent>
+        </Card>
       </div>
     {/if}
 
     {#if run.error}
-      <div class="error-panel">{run.error}</div>
-    {/if}
-
-    {#if outputDbPath || latestDbPath}
-      <div class="mt-4 grid gap-4 2xl:grid-cols-2">
-        {#if outputDbPath}
-          <div class="json-panel">
-            <div class="flex items-center justify-between gap-3">
-              <p class="eyebrow">Run Output DB</p>
-              <span class="text-xs uppercase tracking-[0.2em] text-slate-500">Per run</span>
-            </div>
-            <pre>{outputDbPath}</pre>
-          </div>
-        {/if}
-        {#if latestDbPath}
-          <div class="json-panel">
-            <div class="flex items-center justify-between gap-3">
-              <p class="eyebrow">Latest Output DB</p>
-              <span class="text-xs uppercase tracking-[0.2em] text-slate-500">Promoted</span>
-            </div>
-            <pre>{latestDbPath}</pre>
-          </div>
-        {/if}
+      <div class="mt-3 rounded-lg border border-rose-400/30 bg-rose-500/10 p-4 text-sm text-rose-200">
+        {run.error}
       </div>
     {/if}
 
-    <div class="mt-5 grid gap-4 2xl:grid-cols-2">
-      <div class="json-panel">
-        <div class="flex items-center justify-between gap-3">
-          <p class="eyebrow">Persisted Config</p>
-          <span class="text-xs uppercase tracking-[0.2em] text-slate-500">Redacted</span>
-        </div>
-        <pre>{pretty(run.config)}</pre>
+    {#if data.outputDbPath || data.latestDbPath}
+      <div class="mt-3 grid gap-3 2xl:grid-cols-2">
+        {#if data.outputDbPath}
+          <Card>
+            <CardHeader>
+              <div class="flex items-center justify-between">
+                <CardTitle>Run Output DB</CardTitle>
+                <span class="text-xs text-muted-foreground">Per run</span>
+              </div>
+            </CardHeader>
+            <CardContent><pre class="max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs text-slate-200">{data.outputDbPath}</pre></CardContent>
+          </Card>
+        {/if}
+        {#if data.latestDbPath}
+          <Card>
+            <CardHeader>
+              <div class="flex items-center justify-between">
+                <CardTitle>Latest Output DB</CardTitle>
+                <span class="text-xs text-muted-foreground">Promoted</span>
+              </div>
+            </CardHeader>
+            <CardContent><pre class="max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs text-slate-200">{data.latestDbPath}</pre></CardContent>
+          </Card>
+        {/if}
       </div>
-      <div class="json-panel">
-        <div class="flex items-center justify-between gap-3">
-          <p class="eyebrow">Run Summary</p>
-          <span class="text-xs uppercase tracking-[0.2em] text-slate-500">Final output</span>
-        </div>
-        <pre>{pretty(run.summary)}</pre>
-      </div>
+    {/if}
+
+    <Separator class="my-4" />
+
+    <div class="grid gap-3 2xl:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <div class="flex items-center justify-between">
+            <CardTitle>Persisted Config</CardTitle>
+            <span class="text-xs text-muted-foreground">Redacted</span>
+          </div>
+        </CardHeader>
+        <CardContent><pre class="max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs text-slate-200">{pretty(run.config)}</pre></CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <div class="flex items-center justify-between">
+            <CardTitle>Run Summary</CardTitle>
+            <span class="text-xs text-muted-foreground">Final output</span>
+          </div>
+        </CardHeader>
+        <CardContent><pre class="max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs text-slate-200">{pretty(run.summary)}</pre></CardContent>
+      </Card>
     </div>
   {/if}
 </section>
-
-<style>
-  .panel {
-    border-radius: 2rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.05);
-    padding: 1.4rem;
-  }
-
-  .eyebrow {
-    font-size: 0.72rem;
-    letter-spacing: 0.24em;
-    text-transform: uppercase;
-    color: rgba(148, 163, 184, 0.84);
-  }
-
-  .cancel-button {
-    border-radius: 9999px;
-    border: 1px solid rgba(248, 113, 113, 0.35);
-    background: rgba(127, 29, 29, 0.32);
-    padding: 0.8rem 1rem;
-    color: #fecaca;
-  }
-
-  .cancel-button:disabled {
-    cursor: not-allowed;
-    opacity: 0.65;
-  }
-
-  .stat-card,
-  .json-panel {
-    border-radius: 1.5rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(2, 6, 23, 0.4);
-    padding: 1rem;
-  }
-
-  .error-panel {
-    margin-top: 1rem;
-    border-radius: 1.5rem;
-    border: 1px solid rgba(251, 113, 133, 0.32);
-    background: rgba(127, 29, 29, 0.24);
-    padding: 1rem;
-    color: #fecdd3;
-  }
-
-  pre {
-    margin-top: 1rem;
-    max-height: 14rem;
-    overflow: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
-    color: #e2e8f0;
-  }
-</style>

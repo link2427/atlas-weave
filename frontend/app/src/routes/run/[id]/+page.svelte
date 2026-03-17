@@ -4,6 +4,10 @@
   import { page } from '$app/stores';
   import { onDestroy, onMount } from 'svelte';
 
+  import { Button } from '$lib/components/ui/button';
+  import { Badge } from '$lib/components/ui/badge';
+  import { Card, CardHeader, CardTitle, CardContent } from '$lib/components/ui/card';
+  import { Skeleton } from '$lib/components/ui/skeleton';
   import { getRecipeDetail } from '$lib/api/tauri/recipes';
   import { cancelRun, getRun, getRunEvents, getRunHistory, type RunDetail, type RunHistoryItem } from '$lib/api/tauri/runs';
   import DagViewer from '$lib/features/dag/DagViewer.svelte';
@@ -36,7 +40,7 @@
   $: routeRunId = $page.params.id;
   $: selectedNode = dagState.nodes.find((node) => node.id === dagState.selectedNodeId) ?? null;
   $: selectedNodeEvents = selectedNode
-    ? eventState.events.filter((event) => event.node_id === selectedNode.id)
+    ? eventStore.getNodeEvents(eventState, selectedNode.id)
     : [];
   $: canLoadOlder = eventState.events.length < eventState.total;
   $: if (mounted && routeRunId && routeRunId !== requestedRunId) {
@@ -108,10 +112,7 @@
   }
 
   async function loadOlderEvents(): Promise<void> {
-    if (!runDetail || loadingOlderEvents || !canLoadOlder) {
-      return;
-    }
-
+    if (!runDetail || loadingOlderEvents || !canLoadOlder) return;
     loadingOlderEvents = true;
     try {
       const nextPage = eventState.page + 1;
@@ -125,13 +126,9 @@
   async function attachListener(runId: string): Promise<void> {
     cleanupListener();
     unlisten = await listen<AtlasWeaveEvent>('atlas-weave:event', (event) => {
-      if (event.payload.run_id !== runId) {
-        return;
-      }
-
+      if (event.payload.run_id !== runId) return;
       eventStore.push(event.payload);
       dagStore.applyEvent(event.payload);
-
       if (
         event.payload.type === 'run_completed' ||
         event.payload.type === 'run_failed' ||
@@ -165,10 +162,7 @@
   }
 
   async function handleCancel(): Promise<void> {
-    if (!runDetail || cancelling) {
-      return;
-    }
-
+    if (!runDetail || cancelling) return;
     cancelling = true;
     try {
       await cancelRun(runDetail.id);
@@ -186,17 +180,12 @@
     return value ? new Date(value).toLocaleString() : '-';
   }
 
-  function statusClasses(status: string | null): string {
-    if (status === 'completed') {
-      return 'status completed';
-    }
-    if (status === 'failed') {
-      return 'status failed';
-    }
-    if (status === 'cancelled') {
-      return 'status cancelled';
-    }
-    return 'status running';
+  function statusVariant(s: string | null): 'running' | 'completed' | 'failed' | 'cancelled' | 'pending' {
+    if (s === 'completed') return 'completed';
+    if (s === 'failed') return 'failed';
+    if (s === 'cancelled') return 'cancelled';
+    if (s === 'running') return 'running';
+    return 'pending';
   }
 </script>
 
@@ -207,48 +196,55 @@
 
 <div class="min-h-screen px-6 py-8 text-slate-50 lg:px-10">
   <div class="mx-auto max-w-[1600px] space-y-6">
-    <section class="rounded-[32px] border border-white/10 bg-ink/70 p-6 shadow-glow">
-      <div class="flex flex-col gap-5 border-b border-white/10 pb-6 xl:flex-row xl:items-end xl:justify-between">
+    <section class="rounded-xl border border-white/10 bg-ink/70 p-6 shadow-glow">
+      <div class="flex flex-col gap-5 border-b border-white/8 pb-6 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <p class="text-xs uppercase tracking-[0.35em] text-sea">Atlas Weave Run</p>
+          <p class="text-xs font-medium uppercase tracking-widest text-sea">Atlas Weave Run</p>
           <h1 class="mt-3 text-3xl font-semibold text-mist">
             {dagState.recipe?.name ?? routeRunId}
           </h1>
-          <p class="mt-3 text-sm text-slate-300">
-            Run ID <code>{routeRunId}</code>
+          <p class="mt-2 text-sm text-muted-foreground">
+            Run ID <code class="text-xs">{routeRunId}</code>
           </p>
           <div class="mt-4 flex flex-wrap gap-3">
-            <button class="nav-button" on:click={() => goto('/')}>
-              Back to launcher
-            </button>
-            <button class="nav-button alt" on:click={() => goto('/')}>
-              Start another run
-            </button>
+            <Button variant="outline" onclick={() => goto('/')}>Back to launcher</Button>
+            <Button variant="outline" onclick={() => goto('/')}>Start another run</Button>
           </div>
         </div>
 
-        <div class="grid gap-3 text-sm text-slate-300 md:grid-cols-2 2xl:grid-cols-3">
-          <div class="stat-card">
-            <p class="eyebrow">Status</p>
-            <p class={statusClasses(eventState.status !== 'idle' ? eventState.status : runDetail?.status ?? null)}>
-              {eventState.status !== 'idle' ? eventState.status : runDetail?.status}
-            </p>
-          </div>
-          <div class="stat-card">
-            <p class="eyebrow">Started</p>
-            <p class="stat-value">{formatTime(runDetail?.startedAt)}</p>
-          </div>
-          <div class="stat-card">
-            <p class="eyebrow">Completed</p>
-            <p class="stat-value">{formatTime(runDetail?.completedAt)}</p>
-          </div>
+        <div class="grid gap-3 text-sm md:grid-cols-2 2xl:grid-cols-3">
+          <Card>
+            <CardHeader><CardTitle>Status</CardTitle></CardHeader>
+            <CardContent>
+              <Badge variant={statusVariant(eventState.status !== 'idle' ? eventState.status : runDetail?.status ?? null)}>
+                {eventState.status !== 'idle' ? eventState.status : runDetail?.status ?? 'loading'}
+              </Badge>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Started</CardTitle></CardHeader>
+            <CardContent><p class="text-sm text-slate-200">{formatTime(runDetail?.startedAt)}</p></CardContent>
+          </Card>
+          <Card>
+            <CardHeader><CardTitle>Completed</CardTitle></CardHeader>
+            <CardContent><p class="text-sm text-slate-200">{formatTime(runDetail?.completedAt)}</p></CardContent>
+          </Card>
         </div>
       </div>
 
       {#if loading}
-        <div class="empty-state">Loading run graph...</div>
+        <div class="mt-6 space-y-4">
+          <div class="grid gap-4 2xl:grid-cols-[320px,minmax(0,1fr)]">
+            <div class="space-y-3">
+              <Skeleton class="h-16 w-full" />
+              <Skeleton class="h-16 w-full" />
+              <Skeleton class="h-16 w-full" />
+            </div>
+            <Skeleton class="h-96 w-full" />
+          </div>
+        </div>
       {:else if loadError}
-        <div class="mt-6 rounded-[28px] border border-rose-400/30 bg-rose-500/10 px-5 py-5 text-sm text-rose-100">
+        <div class="mt-6 rounded-lg border border-rose-400/30 bg-rose-500/10 p-6 text-sm text-rose-100">
           <p class="font-semibold">Run could not be loaded.</p>
           <p class="mt-2">{loadError}</p>
           <a class="mt-4 inline-flex text-sm text-rose-50 underline" href="/">Back to recipes</a>
@@ -260,7 +256,7 @@
             activeRunId={routeRunId}
             items={historyItems}
             loading={loadingHistory}
-            on:select={(event) => goto(`/run/${event.detail.runId}`)}
+            on:select={(event: CustomEvent<{ runId: string }>) => goto(`/run/${event.detail.runId}`)}
           />
 
           <div class="space-y-6">
@@ -271,7 +267,7 @@
               on:cancel={handleCancel}
             />
 
-            <div class="rounded-[30px] border border-white/10 bg-white/4 p-4">
+            <div class="rounded-lg border border-white/8 bg-white/[0.03] p-4">
               <DagViewer
                 nodes={dagState.nodes}
                 edges={dagState.edges}
@@ -298,74 +294,3 @@
     {/if}
   </div>
 </div>
-
-<style>
-  .stat-card {
-    border-radius: 1.35rem;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.04);
-    padding: 0.9rem 1rem;
-  }
-
-  .eyebrow {
-    font-size: 0.72rem;
-    letter-spacing: 0.24em;
-    text-transform: uppercase;
-    color: rgba(148, 163, 184, 0.84);
-  }
-
-  .status {
-    margin-top: 0.75rem;
-    font-size: 0.95rem;
-    font-weight: 600;
-    text-transform: capitalize;
-  }
-
-  .status.running {
-    color: #99f6e4;
-  }
-
-  .status.completed {
-    color: #bae6fd;
-  }
-
-  .status.failed {
-    color: #fecdd3;
-  }
-
-  .status.cancelled {
-    color: #fde68a;
-  }
-
-  .stat-value {
-    margin-top: 0.75rem;
-    color: #e2e8f0;
-  }
-
-  .empty-state {
-    display: grid;
-    min-height: 26rem;
-    place-items: center;
-    color: rgba(226, 232, 240, 0.76);
-  }
-
-  .nav-button {
-    border-radius: 9999px;
-    border: 1px solid rgba(125, 211, 252, 0.25);
-    background: rgba(8, 15, 30, 0.72);
-    padding: 0.75rem 1rem;
-    color: #e0f2fe;
-    transition: border-color 160ms ease, background 160ms ease;
-  }
-
-  .nav-button:hover {
-    border-color: rgba(125, 211, 252, 0.55);
-    background: rgba(14, 116, 144, 0.2);
-  }
-
-  .nav-button.alt {
-    border-color: rgba(45, 212, 191, 0.28);
-    background: rgba(15, 118, 110, 0.18);
-    color: #ccfbf1;
-  }
-</style>
