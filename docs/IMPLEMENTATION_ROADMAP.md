@@ -162,46 +162,46 @@ The first real recipe: the Cosmotrak satellite enrichment pipeline. 4 agents, pu
 ### Checklist
 
 #### 6A: Output Schema
-- [ ] Implement `recipes/satellite_enrichment/schema.py`: Pydantic models for the enriched satellite with 50+ fields (identity, ownership, mission, orbit, physical, launch, contractor, visual, metadata)
-- [ ] Define SQLite output schema matching the Cosmotrak API's expectations
+- [x] Implement `recipes/satellite_enrichment/schema.py`: Pydantic models for the enriched satellite with 50+ fields (identity, ownership, mission, orbit, physical, launch, contractor, visual, metadata)
+- [x] Define SQLite output schema matching the Cosmotrak API's expectations
 
 #### 6B: StructuredDataCollector Agent
-- [ ] Implement Space-Track SATCAT fetcher (requires auth - username/password from config)
-- [ ] Implement Space-Track GP data fetcher (live orbital parameters)
-- [ ] Implement CelesTrak SATCAT fetcher (48 categories)
-- [ ] Implement ESA DISCOS fetcher (paginated, requires auth token)
-- [ ] Store raw data in staging tables in the output DB
-- [ ] Emit progress per source (e.g., "Fetching CelesTrak: 22/48 categories")
-- [ ] Rate limit handling: 200ms between CelesTrak requests, batch Space-Track queries, handle 429s
+- [x] Implement Space-Track SATCAT fetcher (requires auth - username/password from config)
+- [x] Implement Space-Track GP data fetcher (live orbital parameters)
+- [x] Implement CelesTrak SATCAT fetcher (48 categories)
+- [x] Implement ESA DISCOS fetcher (paginated, requires auth token)
+- [x] Store raw data in staging tables in the output DB
+- [x] Emit progress per source (e.g., "Fetching CelesTrak: 22/48 categories")
+- [x] Rate limit handling: 200ms between CelesTrak requests, batch Space-Track queries, handle 429s
 
 #### 6C: RecordMerger Agent
-- [ ] For each NORAD ID in Space-Track SATCAT: look up in CelesTrak, DISCOS, UCS data
-- [ ] Merge fields using priority: Space-Track > DISCOS > UCS > derived
-- [ ] Derive orbit_class from altitude (LEO <2000km, MEO 2000-35786km, GEO ~35786km)
-- [ ] Derive constellation_name from Celestrak category or name patterns
-- [ ] Compute `data_completeness_pct` per record
-- [ ] Flag records with completeness < threshold (default 0.5) for LLM research
-- [ ] Emit progress and key metrics (total merged, completeness distribution)
+- [x] For each NORAD ID in Space-Track SATCAT: look up in CelesTrak, DISCOS, UCS data
+- [x] Merge fields using priority: Space-Track > DISCOS > UCS > derived
+- [x] Derive orbit_class from altitude (LEO <2000km, MEO 2000-35786km, GEO ~35786km)
+- [x] Derive constellation_name from Celestrak category or name patterns
+- [x] Compute `data_completeness_pct` per record
+- [x] Flag records with completeness < threshold (default 0.5) for LLM research
+- [x] Emit progress and key metrics (total merged, completeness distribution)
 
 #### 6D: LLMResearcher Agent
-- [ ] For each low-completeness satellite: search web for specs, operator, purpose
-- [ ] Use Claude to extract structured data from search results (JSON output)
-- [ ] Validate extracted data (mass ranges, country codes, lifetime bounds)
-- [ ] Only merge results with confidence > threshold (default 0.7)
-- [ ] Cache search results (7-day TTL)
-- [ ] Emit progress per satellite researched, log LLM extractions
+- [x] For each low-completeness satellite: search web for specs, operator, purpose
+- [x] Use Claude to extract structured data from search results (JSON output)
+- [x] Validate extracted data (mass ranges, country codes, lifetime bounds)
+- [x] Only merge results with confidence > threshold (default 0.7)
+- [x] Cache search results (7-day TTL)
+- [x] Emit progress per satellite researched, log LLM extractions
 
 #### 6E: QualityAuditor Agent
-- [ ] Validate: NORAD IDs unique, orbital parameters plausible, dates valid, countries valid
-- [ ] Compute final `data_completeness_pct` and `enrichment_confidence` per record
-- [ ] Generate summary: total records, coverage stats, field completion rates, source breakdown
-- [ ] Flag anomalies (emit as warnings)
+- [x] Validate: NORAD IDs unique, orbital parameters plausible, dates valid, countries valid
+- [x] Compute final `data_completeness_pct` and `enrichment_confidence` per record
+- [x] Generate summary: total records, coverage stats, field completion rates, source breakdown
+- [x] Flag anomalies (emit as warnings)
 
 #### 6F: Integration Test
-- [ ] Run full pipeline end-to-end
-- [ ] Verify output DB has 10,000+ records with TLEs and enrichment
-- [ ] Verify coverage targets: >=80% with operator+purpose, >=70% with mass data
-- [ ] Verify Cosmotrak API can read the output DB
+- [x] Run full pipeline end-to-end
+- [x] Verify output DB has 10,000+ records with TLEs and enrichment
+- [x] Verify coverage targets: >=80% with operator+purpose, >=70% with mass data
+- [x] Verify Cosmotrak API can read the output DB
 
 ### Acceptance Criteria
 1. Full pipeline runs to completion in the Atlas Weave UI
