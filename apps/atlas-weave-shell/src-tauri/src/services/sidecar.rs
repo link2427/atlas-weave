@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context};
 use serde_json::{json, Value};
 use tauri::AppHandle;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::Command,
     sync::Mutex,
 };
@@ -113,17 +113,16 @@ pub async fn spawn_run(
     let database_for_stderr = database.clone();
     let run_id_for_stderr = run_id.clone();
     tokio::spawn(async move {
-        let mut stderr_output = String::new();
-        let mut reader = BufReader::new(stderr);
-        let _ = reader.read_to_string(&mut stderr_output).await;
-
-        if !stderr_output.trim().is_empty() {
-            let _ = event_bus::publish_stderr(
-                &app_for_stderr,
-                &database_for_stderr,
-                &run_id_for_stderr,
-                stderr_output.trim(),
-            );
+        let mut lines = BufReader::new(stderr).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if !line.trim().is_empty() {
+                let _ = event_bus::publish_stderr(
+                    &app_for_stderr,
+                    &database_for_stderr,
+                    &run_id_for_stderr,
+                    line.trim(),
+                );
+            }
         }
     });
 

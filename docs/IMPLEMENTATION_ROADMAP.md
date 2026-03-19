@@ -136,14 +136,14 @@ The Python framework includes production-ready built-in tools that auto-emit eve
 
 ### Checklist
 
-- [ ] Implement `tools/http_tool.py`: `HttpTool` wrapping httpx - emits `tool_call` on every request (method, URL), emits `tool_result` with status code, duration, response size
-- [ ] Implement `tools/llm_tool.py`: `LLMTool` wrapping Claude API - emits `llm_call` (model, prompt_tokens), emits `llm_result` (completion_tokens, duration, estimated cost). Supports structured output via tool_use.
-- [ ] Implement `tools/web_search_tool.py`: `WebSearchTool` - emits events, caches results by query with configurable TTL (default 7 days)
-- [ ] Implement `tools/web_scrape_tool.py`: `WebScrapeTool` using BeautifulSoup - fetches URL via HttpTool (gets event emission for free), parses HTML, returns text/structured data
-- [ ] Implement `tools/sqlite_tool.py`: `SQLiteTool` - wraps SQLite access for recipe output databases, provides `execute`, `fetch_all`, `fetch_one`, `upsert` helpers
-- [ ] Update `NodeTools.svelte`: renders list of all tool calls for a node, expandable to show full request/response
-- [ ] Add LLM cost estimation: model pricing table, compute cost from token counts, show cumulative cost per run
-- [ ] Write tests for each tool (mock HTTP responses, verify event emission format)
+- [x] Implement `tools/http_tool.py`: `HttpTool` wrapping httpx - emits `tool_call` on every request (method, URL), emits `tool_result` with status code, duration, response size
+- [x] Implement `tools/llm_tool.py`: `LLMTool` wrapping Claude API - emits `llm_call` (model, prompt_tokens), emits `llm_result` (completion_tokens, duration, estimated cost). Supports structured output via tool_use.
+- [x] Implement `tools/web_search_tool.py`: `WebSearchTool` - emits events, caches results by query with configurable TTL (default 7 days)
+- [x] Implement `tools/web_scrape_tool.py`: `WebScrapeTool` using BeautifulSoup - fetches URL via HttpTool (gets event emission for free), parses HTML, returns text/structured data
+- [x] Implement `tools/sqlite_tool.py`: `SQLiteTool` - wraps SQLite access for recipe output databases, provides `execute`, `fetch_all`, `fetch_one`, `upsert` helpers
+- [x] Update `NodeTools.svelte`: renders list of all tool calls for a node, expandable to show full request/response
+- [x] Add LLM cost estimation: model pricing table, compute cost from token counts, show cumulative cost per run
+- [x] Write tests for each tool (mock HTTP responses, verify event emission format)
 
 ### Acceptance Criteria
 1. HttpTool emits events for every request - visible in NodeTools panel

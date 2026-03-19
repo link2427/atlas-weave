@@ -381,6 +381,29 @@ def test_recipe_run_tolerates_llm_parse_errors(
 
 
 @pytest.mark.external
+def test_celestrak_smoke_fetch_stations_group() -> None:
+    """Fetch a single CelesTrak group and verify the response is usable."""
+    import httpx
+
+    from recipes.satellite_enrichment.sources import normalize_celestrak_row
+
+    url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=json"
+    response = httpx.get(url, headers={"User-Agent": "AtlasWeave/0.1"}, timeout=45.0, follow_redirects=True)
+    response.raise_for_status()
+
+    body = response.json()
+    assert isinstance(body, list), f"Expected list, got {type(body).__name__}"
+    assert len(body) > 0, "Expected non-empty list from CelesTrak stations group"
+
+    first = body[0]
+    assert "NORAD_CAT_ID" in first, f"Missing NORAD_CAT_ID in record keys: {list(first.keys())[:10]}"
+
+    normalized = normalize_celestrak_row(first, "stations")
+    assert normalized["norad_id"] is not None
+    assert normalized.get("group_name") == "stations"
+
+
+@pytest.mark.external
 def test_satellite_enrichment_external_live_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     required = [
         "DISCOS_API_TOKEN",

@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import importlib
 import json
+import logging
 import sys
 from dataclasses import dataclass
 from time import perf_counter
@@ -17,12 +18,16 @@ from atlas_weave.tool import ToolRegistry
 from atlas_weave.tools import register_builtin_tools
 
 
+logger = logging.getLogger(__name__)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Atlas Weave recipe runner")
     parser.add_argument("--recipe", type=str, default=None)
     parser.add_argument("--run-id", type=str, default=None)
     parser.add_argument("--config-json", type=str, default=None)
     parser.add_argument("--describe-recipe", type=str, default=None)
+    parser.add_argument("--debug", action="store_true", default=False, help="Enable DEBUG logging and print a human-readable run summary to stderr")
     return parser.parse_args()
 
 
@@ -149,19 +154,23 @@ async def _execute_agent(
     )
     context.raise_if_cancelled()
     started_at = perf_counter()
+    logger.info("Agent %s starting", agent_name)
     emitter.node_started(agent_name)
 
     try:
         result = await agent.execute(context)
     except RunCancelledError as error:
+        logger.info("Agent %s cancelled: %s", agent_name, error)
         emitter.node_cancelled(agent_name, str(error))
         return AgentOutcome(node_id=agent_name, status="cancelled", error=str(error))
     except Exception as error:  # noqa: BLE001
+        logger.error("Agent %s failed: %s", agent_name, error)
         emitter.node_failed(agent_name, str(error))
         return AgentOutcome(node_id=agent_name, status="failed", error=str(error))
 
     duration_ms = int((perf_counter() - started_at) * 1000)
     summary = result.model_dump(mode="json")
+    logger.info("Agent %s completed in %dms", agent_name, duration_ms)
     emitter.node_completed(agent_name, duration_ms=duration_ms, summary=summary)
     return AgentOutcome(node_id=agent_name, status="completed", summary=summary)
 
@@ -189,6 +198,7 @@ async def run_recipe(
 ) -> None:
     recipe = _load_recipe(recipe_name)
     plan = build_execution_plan(recipe)
+    logger.info("Recipe loaded: %s (%d agents, %d levels)", recipe.name, len(recipe.agents), len(plan.levels))
     metrics = RunMetrics()
     emitter = EventEmitter(run_id=run_id, hooks=[metrics.record])
     tools = register_builtin_tools(ToolRegistry())
@@ -273,13 +283,21 @@ async def run_recipe(
                 emitter.run_cancelled(cancellation.message)
                 return
 
+        completed = sum(1 for status in status_by_node.values() if status == "completed")
+        failed = sum(1 for status in status_by_node.values() if status == "failed")
+        skipped = sum(1 for status in status_by_node.values() if status == "skipped")
+        cancelled = sum(1 for status in status_by_node.values() if status == "cancelled")
+        logger.info(
+            "Run completed: %d completed, %d failed, %d skipped, %d cancelled",
+            completed, failed, skipped, cancelled,
+        )
         emitter.run_completed(
             {
                 "recipe": recipe.name,
-                "completed_nodes": sum(1 for status in status_by_node.values() if status == "completed"),
-                "failed_nodes": sum(1 for status in status_by_node.values() if status == "failed"),
-                "skipped_nodes": sum(1 for status in status_by_node.values() if status == "skipped"),
-                "cancelled_nodes": sum(1 for status in status_by_node.values() if status == "cancelled"),
+                "completed_nodes": completed,
+                "failed_nodes": failed,
+                "skipped_nodes": skipped,
+                "cancelled_nodes": cancelled,
                 "node_summaries": summary_by_node,
                 **dict(state.get("_run_summary", {})),
                 **metrics.summary(),
@@ -296,6 +314,12 @@ async def run_recipe(
 
 def main() -> None:
     args = parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.debug else logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        stream=sys.stderr,
+    )
 
     if args.describe_recipe:
         metadata = describe_recipe(args.describe_recipe)

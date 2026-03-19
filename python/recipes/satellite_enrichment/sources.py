@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import json
+import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -15,6 +16,8 @@ import httpx
 from atlas_weave.context import AgentContext
 from recipes.satellite_enrichment import db
 from recipes.satellite_enrichment.schema import normalize_country, utc_now
+
+logger = logging.getLogger(__name__)
 
 SPACE_TRACK_GP_BATCH_SIZE = 50
 SPACE_TRACK_GP_DELAY_S = 0.75
@@ -105,25 +108,37 @@ async def fetch_source_bundle(ctx: AgentContext) -> SourceBundle:
     stale_sources: list[str] = []
     source_snapshots: list[dict[str, Any]] = []
 
+    logger.info("Fetching CelesTrak...")
     ctx.emit.progress(ctx.node_id, 0.06, "Fetching CelesTrak categories")
     celestrak_rows, celestrak_status, snapshot = await _fetch_celestrak(ctx)
+    logger.info("CelesTrak: status=%s, records=%d", celestrak_status, len(celestrak_rows))
     _record_snapshot_state("celestrak", celestrak_status, snapshot, cached_sources, stale_sources, source_snapshots)
 
+    logger.info("Fetching DISCOS...")
     ctx.emit.progress(ctx.node_id, 0.38, "Fetching ESA DISCOS objects")
     discos_rows, discos_status, snapshot = await _fetch_discos(ctx)
+    logger.info("DISCOS: status=%s, records=%d", discos_status, len(discos_rows))
     _record_snapshot_state("discos", discos_status, snapshot, cached_sources, stale_sources, source_snapshots)
 
+    logger.info("Fetching UCS...")
     ctx.emit.progress(ctx.node_id, 0.58, "Loading UCS catalog")
     ucs_rows, ucs_status, snapshot = await _fetch_ucs(ctx)
+    logger.info("UCS: status=%s, records=%d", ucs_status, len(ucs_rows))
     _record_snapshot_state("ucs", ucs_status, snapshot, cached_sources, stale_sources, source_snapshots)
 
+    logger.info("Fetching Space-Track...")
     ctx.emit.progress(ctx.node_id, 0.78, "Resolving optional Space-Track data")
     satcat_rows, gp_rows, space_track_status, snapshot = await _fetch_space_track(ctx)
+    logger.info("Space-Track: status=%s, satcat=%d, gp=%d", space_track_status, len(satcat_rows), len(gp_rows))
     _record_snapshot_state("space_track", space_track_status, snapshot, cached_sources, stale_sources, source_snapshots)
 
     if not any((celestrak_rows, discos_rows, ucs_rows, satcat_rows)):
         raise ValueError("No structured source data was collected. Configure CelesTrak access, UCS input, or DISCOS credentials.")
 
+    logger.info(
+        "Source collection complete: celestrak=%d, discos=%d, ucs=%d, space_track_satcat=%d, space_track_gp=%d",
+        len(celestrak_rows), len(discos_rows), len(ucs_rows), len(satcat_rows), len(gp_rows),
+    )
     ctx.emit.progress(ctx.node_id, 0.94, "Structured source collection complete")
     return SourceBundle(
         space_track_satcat=satcat_rows,
@@ -305,27 +320,63 @@ async def _fetch_celestrak(
         return (rows, "cached", _snapshot_metadata(fresh_snapshot, "cached"))
 
     stale_snapshot = _load_snapshot("celestrak", None)
+    total_groups = len(CELESTRAK_GROUPS)
+    completed_count = 0
+    semaphore = asyncio.Semaphore(6)
+
+    async def _fetch_group(group: str) -> tuple[str, list[dict[str, Any]], str | None]:
+        nonlocal completed_count
+        async with semaphore:
+            ctx.raise_if_cancelled()
+            url = f"https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=json"
+            try:
+                response = await ctx.tools.http.call(ctx, method="GET", url=url, headers={"User-Agent": "AtlasWeave/0.1"}, timeout_s=45.0)
+                if response.json_body is None:
+                    logger.warning(
+                        "CelesTrak group %s: json_body is None (content-type: %s, body: %d bytes)",
+                        group, response.content_type, response.body_bytes,
+                    )
+                    ctx.emit.log(ctx.node_id, "warning",
+                        f"CelesTrak group {group}: json_body is None (content-type: {response.content_type}, body: {response.body_bytes} bytes)")
+                payload = response.json_body if isinstance(response.json_body, list) else []
+                logger.debug("CelesTrak group %s: HTTP %d, content-type=%s, records=%d", group, response.status_code, response.content_type, len(payload))
+                group_rows = [normalize_celestrak_row(item, group) for item in payload]
+                return (group, group_rows, None)
+            except Exception as error:  # noqa: BLE001
+                logger.warning("CelesTrak group %s failed: %s", group, error)
+                ctx.emit.log(ctx.node_id, "warning", f"CelesTrak group {group} failed: {error}")
+                return (group, [], str(error))
+            finally:
+                completed_count += 1
+                ctx.emit.progress(
+                    ctx.node_id,
+                    0.06 + (completed_count / total_groups) * 0.28,
+                    f"Fetching CelesTrak: {completed_count}/{total_groups} groups",
+                )
+                await asyncio.sleep(0.15)
+
+    results = await asyncio.gather(*[_fetch_group(group) for group in CELESTRAK_GROUPS])
     rows: list[dict[str, Any]] = []
     failures = 0
-    for index, group in enumerate(CELESTRAK_GROUPS, start=1):
-        ctx.raise_if_cancelled()
-        url = f"https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=json"
-        try:
-            response = await ctx.tools.http.call(ctx, method="GET", url=url, headers={"User-Agent": "AtlasWeave/0.1"})
-            payload = response.json_body if isinstance(response.json_body, list) else []
-            rows.extend(normalize_celestrak_row(item, group) for item in payload)
-        except Exception as error:  # noqa: BLE001
+    for _group, group_rows, error in results:
+        if error is not None:
             failures += 1
-            ctx.emit.log(ctx.node_id, "warning", f"CelesTrak group {group} failed: {error}")
-        ctx.emit.progress(
-            ctx.node_id,
-            0.06 + (index / len(CELESTRAK_GROUPS)) * 0.28,
-            f"Fetching CelesTrak: {index}/{len(CELESTRAK_GROUPS)} groups",
-        )
-        await asyncio.sleep(0.2)
+        rows.extend(group_rows)
 
     rows = _dedupe_celestrak_rows(rows)
+
     if rows:
+        logger.info("Fetching CelesTrak TLEs for active satellites...")
+        ctx.emit.progress(ctx.node_id, 0.34, "Fetching CelesTrak TLE data")
+        tle_map = await _fetch_celestrak_tles(ctx)
+        populated = 0
+        for row in rows:
+            norad_id = row.get("norad_id")
+            if norad_id is not None and norad_id in tle_map:
+                row["tle_line1"], row["tle_line2"] = tle_map[norad_id]
+                populated += 1
+        logger.info("CelesTrak TLEs: %d/%d satellites populated", populated, len(rows))
+
         snapshot = _write_snapshot(
             "celestrak",
             {"rows": rows},
@@ -344,6 +395,47 @@ async def _fetch_celestrak(
             _snapshot_metadata(stale_snapshot, "stale_cache"),
         )
     return ([], "failed", None)
+
+
+async def _fetch_celestrak_tles(ctx: AgentContext) -> dict[int, tuple[str, str]]:
+    """Fetch TLE lines for active satellites from CelesTrak's TLE-format endpoint."""
+    url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle"
+    try:
+        response = await ctx.tools.http.call(
+            ctx, method="GET", url=url,
+            headers={"User-Agent": "AtlasWeave/0.1"},
+            timeout_s=60.0,
+        )
+        if response.text is None:
+            logger.warning("CelesTrak TLE response has no text body")
+            return {}
+        tle_map = _parse_tle_text(response.text)
+        logger.info("Parsed %d TLE entries from CelesTrak active group", len(tle_map))
+        return tle_map
+    except Exception as error:  # noqa: BLE001
+        logger.warning("CelesTrak TLE fetch failed: %s", error)
+        ctx.emit.log(ctx.node_id, "warning", f"CelesTrak TLE fetch failed: {error}")
+        return {}
+
+
+def _parse_tle_text(text: str) -> dict[int, tuple[str, str]]:
+    """Parse 3-line TLE format into a dict keyed by NORAD catalog number."""
+    lines = [line for line in text.splitlines() if line.strip()]
+    tles: dict[int, tuple[str, str]] = {}
+    i = 0
+    while i + 2 < len(lines):
+        line1 = lines[i + 1].strip()
+        line2 = lines[i + 2].strip()
+        if line1.startswith("1 ") and line2.startswith("2 "):
+            try:
+                norad_id = int(line1[2:7])
+                tles[norad_id] = (line1, line2)
+            except (ValueError, IndexError):
+                pass
+            i += 3
+        else:
+            i += 1
+    return tles
 
 
 async def _fetch_discos(
@@ -407,6 +499,11 @@ async def _fetch_discos(
                 _snapshot_metadata(stale_snapshot, "stale_cache"),
             )
         ctx.emit.log(ctx.node_id, "warning", f"DISCOS fetch failed: {error}")
+        return ([], "failed", None)
+
+    if not rows:
+        logger.warning("DISCOS live fetch returned 0 records; not caching empty result")
+        ctx.emit.log(ctx.node_id, "warning", "DISCOS live fetch returned 0 records")
         return ([], "failed", None)
 
     snapshot = _write_snapshot(
@@ -892,12 +989,16 @@ def _parse_iso8601(value: str) -> datetime:
 
 def _dedupe_celestrak_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     deduped: dict[tuple[int | None, str | None], dict[str, Any]] = {}
+    none_id_rows: list[dict[str, Any]] = []
     for row in rows:
+        if row.get("norad_id") is None:
+            none_id_rows.append(row)
+            continue
         key = (row.get("norad_id"), row.get("group_name"))
         current = deduped.get(key)
         if current is None or _row_score(row) > _row_score(current):
             deduped[key] = row
-    return list(deduped.values())
+    return [*deduped.values(), *none_id_rows]
 
 
 def _row_score(row: dict[str, Any]) -> int:

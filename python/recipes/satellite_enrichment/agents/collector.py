@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
+
 from atlas_weave import Agent, AgentContext, AgentResult
 from recipes.satellite_enrichment import db
 from recipes.satellite_enrichment.schema import utc_now
 from recipes.satellite_enrichment.sources import fetch_source_bundle, snapshot_stage_rows, stage_rows
+
+logger = logging.getLogger(__name__)
 
 
 class StructuredDataCollector(Agent):
@@ -24,6 +28,11 @@ class StructuredDataCollector(Agent):
 
         bundle = await fetch_source_bundle(ctx)
         source_counts = bundle.counts()
+        logger.info(
+            "Staged rows: space_track_satcat=%d, space_track_gp=%d, celestrak=%d, discos=%d, ucs=%d",
+            len(bundle.space_track_satcat), len(bundle.space_track_gp),
+            len(bundle.celestrak_satcat), len(bundle.discos), len(bundle.ucs),
+        )
         staged_records = 0
         staged_records += db.insert_stage_rows(
             output_db_path,

@@ -97,11 +97,16 @@ def _serialize_response(method: str, url: str, response: httpx.Response) -> Http
     content_type = response.headers.get("content-type", "")
     text: str | None = response.text if _is_text_response(content_type) else None
     json_body: Any | None = None
-    if content_type.startswith("application/json"):
+    if "json" in content_type:
         try:
             json_body = response.json()
         except json.JSONDecodeError:
             json_body = None
+    if json_body is None and text is not None:
+        try:
+            json_body = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            pass
 
     return HttpToolResponse(
         method=method.upper(),
