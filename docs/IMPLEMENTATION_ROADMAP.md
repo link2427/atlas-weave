@@ -221,14 +221,14 @@ A full-screen data browser for inspecting recipe output databases. Browse record
 
 ### Checklist
 
-- [ ] Implement `commands/data.rs`: `query_recipe_db` - opens recipe output DB in read-only mode, executes paginated queries with sort/filter params
-- [ ] Create `DataBrowser.svelte`: full-screen view with table + sidebar
-- [ ] Create `DataTable.svelte`: paginated table with column sorting, text search, column filtering
-- [ ] Create `RecordDetail.svelte`: click a row to see all fields for one record in a formatted view
-- [ ] Create `CoverageDashboard.svelte`: bar charts showing field completion rates across all records
-- [ ] Add export to CSV button
-- [ ] Create `/data/[recipe]/+page.svelte` route
-- [ ] Add "View Data" link in recipe list and run summary
+- [x] Implement `commands/data.rs`: `query_recipe_db` - opens recipe output DB in read-only mode, executes paginated queries with sort/filter params
+- [x] Create `DataBrowser.svelte`: full-screen view with table + sidebar
+- [x] Create `DataTable.svelte`: paginated table with column sorting, text search, column filtering
+- [x] Create `RecordDetail.svelte`: click a row to see all fields for one record in a formatted view
+- [x] Create `CoverageDashboard.svelte`: bar charts showing field completion rates across all records
+- [x] Add export to CSV button
+- [x] Create `/data/[recipe]/+page.svelte` route
+- [x] Add "View Data" link in recipe list and run summary
 
 ### Acceptance Criteria
 1. Data inspector opens and displays satellite enrichment output

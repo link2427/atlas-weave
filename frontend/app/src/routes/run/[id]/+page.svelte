@@ -282,7 +282,7 @@
 
     {#if !loading && !loadError}
       <section class="grid gap-6 2xl:grid-cols-[minmax(0,1.05fr),minmax(420px,0.95fr)]">
-        <NodeDetail node={selectedNode} events={selectedNodeEvents} />
+        <NodeDetail node={selectedNode} events={selectedNodeEvents} run={runDetail} />
         <RunLogViewer
           events={eventState.events}
           total={eventState.total}

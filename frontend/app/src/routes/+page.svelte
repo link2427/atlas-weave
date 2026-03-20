@@ -180,7 +180,14 @@
                   <h2 class="text-base font-medium text-mist">{recipe.name}</h2>
                   <p class="mt-2 text-sm leading-6 text-muted-foreground">{recipe.description}</p>
                 </div>
-                <Badge variant="outline">v{recipe.version}</Badge>
+                <div class="flex items-center gap-2">
+                  <a
+                    href="/data/{recipe.name}"
+                    class="text-xs text-sky-300 underline hover:text-sky-200"
+                    on:click|stopPropagation
+                  >View Data</a>
+                  <Badge variant="outline">v{recipe.version}</Badge>
+                </div>
               </div>
             </button>
           {/each}

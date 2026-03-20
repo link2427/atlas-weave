@@ -232,7 +232,12 @@
             <CardHeader>
               <div class="flex items-center justify-between">
                 <CardTitle>Run Output DB</CardTitle>
-                <span class="text-xs text-muted-foreground">Per run</span>
+                <div class="flex items-center gap-2">
+                  <a href="/data/{run.recipeName}?db={encodeURIComponent(data.outputDbPath)}">
+                    <Button variant="outline" size="sm">View Data</Button>
+                  </a>
+                  <span class="text-xs text-muted-foreground">Per run</span>
+                </div>
               </div>
             </CardHeader>
             <CardContent><pre class="max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs text-slate-200">{data.outputDbPath}</pre></CardContent>
@@ -243,7 +248,12 @@
             <CardHeader>
               <div class="flex items-center justify-between">
                 <CardTitle>Latest Output DB</CardTitle>
-                <span class="text-xs text-muted-foreground">Promoted</span>
+                <div class="flex items-center gap-2">
+                  <a href="/data/{run.recipeName}?db={encodeURIComponent(data.latestDbPath)}">
+                    <Button variant="outline" size="sm">View Data</Button>
+                  </a>
+                  <span class="text-xs text-muted-foreground">Promoted</span>
+                </div>
               </div>
             </CardHeader>
             <CardContent><pre class="max-h-56 overflow-auto whitespace-pre-wrap break-words text-xs text-slate-200">{data.latestDbPath}</pre></CardContent>
