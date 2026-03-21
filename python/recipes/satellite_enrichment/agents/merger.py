@@ -88,7 +88,6 @@ UCS_PHYSICAL_FIELDS = (
 PROTECTED_FIELDS = {
     "norad_id",
     "international_designator",
-    "launch_date",
     "epoch_utc",
     "inclination_deg",
     "eccentricity",
@@ -144,7 +143,7 @@ class RecordMerger(Agent):
 
         for index, norad_id in enumerate(candidate_norad_ids, start=1):
             ctx.raise_if_cancelled()
-            merged, source_fields, candidate_values, conflict_fields = _merge_satellite_record(
+            merged, source_fields, candidate_values, conflict_fields, celestrak_groups = _merge_satellite_record(
                 norad_id=norad_id,
                 satcat_rows=satcat_by_norad.get(norad_id, []),
                 gp_rows=gp_by_norad.get(norad_id, []),
@@ -179,6 +178,7 @@ class RecordMerger(Agent):
                                 "missing_fields": missing_fields,
                                 "conflict_fields": conflict_fields,
                                 "record": merged,
+                                "celestrak_groups": celestrak_groups,
                             },
                             separators=(",", ":"),
                         ),
@@ -354,9 +354,18 @@ def _merge_satellite_record(
     if constellation_name:
         _merge_fields(record, source_fields, candidate_values, "celestrak", {"constellation_name": constellation_name}, ("constellation_name",))
 
+    if constellation_name:
+        from recipes.satellite_enrichment.constellation_templates import CONSTELLATION_TEMPLATES
+        template = CONSTELLATION_TEMPLATES.get(constellation_name.lower())
+        if template:
+            for field_name, value in template.items():
+                if record.get(field_name) in {None, ""}:
+                    record[field_name] = value
+                    source_fields["celestrak"].add(field_name)
+
     _finalize_derived_fields(record)
     conflict_fields = _conflict_fields(candidate_values)
-    return (record, source_fields, candidate_values, conflict_fields)
+    return (record, source_fields, candidate_values, conflict_fields, groups)
 
 
 def _blank_record(norad_id: int) -> dict[str, Any]:
@@ -409,6 +418,27 @@ def _merge_fields(
 
 
 def _finalize_derived_fields(record: dict[str, Any]) -> None:
+    if record.get("object_type") in {None, ""}:
+        name_upper = str(record.get("object_name") or "").upper()
+        if "DEB" in name_upper:
+            record["object_type"] = "DEBRIS"
+        elif "R/B" in name_upper:
+            record["object_type"] = "ROCKET BODY"
+        elif name_upper:
+            record["object_type"] = "PAYLOAD"
+
+    if record.get("launch_date") in {None, ""} and record.get("international_designator"):
+        intldes = str(record["international_designator"]).strip()
+        if len(intldes) >= 4:
+            try:
+                year = int(intldes[:4])
+                if 1957 <= year <= 2030:
+                    record["launch_date"] = f"{year}-01-01"
+                    if record.get("launch_year") in {None, ""}:
+                        record["launch_year"] = year
+            except ValueError:
+                pass
+
     object_type = str(record.get("object_type") or "").upper()
     record["is_debris"] = "DEB" in object_type or "DEBRIS" in object_type
     object_name = str(record.get("object_name") or "").upper()

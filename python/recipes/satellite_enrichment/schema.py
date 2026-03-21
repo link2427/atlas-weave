@@ -41,6 +41,32 @@ CORE_COUNTRY_MAP = {
     "UNITED ARAB EMIRATES": "United Arab Emirates",
     "NZ": "New Zealand",
     "NEW ZEALAND": "New Zealand",
+    "IL": "Israel",
+    "ISRAEL": "Israel",
+    "AU": "Australia",
+    "AUSTRALIA": "Australia",
+    "NL": "Netherlands",
+    "NETHERLANDS": "Netherlands",
+    "NO": "Norway",
+    "NORWAY": "Norway",
+    "SE": "Sweden",
+    "SWEDEN": "Sweden",
+    "AR": "Argentina",
+    "ARGENTINA": "Argentina",
+    "TW": "Taiwan",
+    "TAIWAN": "Taiwan",
+    "SG": "Singapore",
+    "SINGAPORE": "Singapore",
+    "SA": "Saudi Arabia",
+    "SAUDI ARABIA": "Saudi Arabia",
+    "KZ": "Kazakhstan",
+    "KAZAKHSTAN": "Kazakhstan",
+    "UA": "Ukraine",
+    "UKRAINE": "Ukraine",
+    "CIS": "CIS",
+    "ESA": "ESA",
+    "EUMETSAT": "EUMETSAT",
+    "MULTINATIONAL": "Multinational",
 }
 
 CORE_COUNTRY_CODES = {
@@ -60,6 +86,21 @@ CORE_COUNTRY_CODES = {
     "Luxembourg": "LU",
     "United Arab Emirates": "AE",
     "New Zealand": "NZ",
+    "Israel": "IL",
+    "Australia": "AU",
+    "Netherlands": "NL",
+    "Norway": "NO",
+    "Sweden": "SE",
+    "Argentina": "AR",
+    "Taiwan": "TW",
+    "Singapore": "SG",
+    "Saudi Arabia": "SA",
+    "Kazakhstan": "KZ",
+    "Ukraine": "UA",
+    "CIS": "CIS",
+    "ESA": "ESA",
+    "EUMETSAT": "EUMETSAT",
+    "Multinational": "MULTI",
 }
 
 COMPLETENESS_FIELDS = [
@@ -108,6 +149,8 @@ LLM_ALLOWED_FIELDS = [
     "constellation_name",
     "operator_type",
     "civilian_military",
+    "object_type",
+    "launch_date",
 ]
 
 SQLITE_COLUMN_TYPES: dict[str, str] = {
@@ -346,10 +389,19 @@ def derive_orbit_class(altitude_km: float | None) -> str | None:
     return "HEO"
 
 
+# CelesTrak groups that are meta-categories (aggregation/status groups), not actual constellations.
+# These should be filtered out when deriving constellation names.
+_META_GROUPS = {
+    "active", "visual", "analyst", "tle-new", "last-30-days",
+    "active-geo", "geo-protected", "other", "geo",
+}
+
+
 def derive_constellation_name(object_name: str | None, celestrak_groups: list[str]) -> str | None:
-    group_names = [group for group in celestrak_groups if group]
-    if group_names:
-        preferred = sorted(group_names, key=len)[0]
+    # Filter out meta-groups that don't represent actual constellations
+    specific_groups = [g for g in celestrak_groups if g and g not in _META_GROUPS]
+    if specific_groups:
+        preferred = sorted(specific_groups, key=len)[0]
         return preferred.replace("-", " ").title()
 
     if not object_name:

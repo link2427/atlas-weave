@@ -179,7 +179,7 @@ async def _fetch_space_track(
                 "cached" if fresh_snapshot else "stale_cache",
                 _snapshot_metadata(stale_snapshot, "cached" if fresh_snapshot else "stale_cache"),
             )
-        return ([], [], "skipped", None)
+        # No cache — fall through to live fetch if credentials exist
 
     identity = os.getenv("SPACE_TRACK_IDENTITY")
     password = os.getenv("SPACE_TRACK_PASSWORD")
@@ -587,9 +587,9 @@ def normalize_space_track_satcat_row(item: dict[str, Any]) -> dict[str, Any]:
         "launch_date": launch_date,
         "launch_year": _launch_year(launch_date),
         "launch_site": _pick(item, "SITE", "LAUNCH_SITE"),
-        "launch_vehicle": _pick(item, "LAUNCH_PIECE", "LAUNCH_VEHICLE"),
+        "launch_vehicle": _pick(item, "LAUNCH_VEHICLE"),
         "decay_date": _pick(item, "DECAY", "DECAY_DATE"),
-        "country_code": country_code,
+        "launch_site_country_code": country_code,
         "country_name": country_name,
         "radar_cross_section_m2": _safe_float(_pick(item, "RCS", "RCS_SIZE")),
         "raw": item,
@@ -655,7 +655,7 @@ def normalize_discos_row(item: dict[str, Any]) -> dict[str, Any]:
 
 def normalize_ucs_row(item: dict[str, Any]) -> dict[str, Any]:
     operator_country_code, operator_country_name = normalize_country(
-        _pick(item, "Operator/Owner", "Country of Operator/Owner", "Country")
+        _pick(item, "Country of Operator/Owner", "Country")
     )
     return {
         "norad_id": _safe_int(_pick(item, "NORAD Number", "NORAD_CAT_ID")),
@@ -665,6 +665,8 @@ def normalize_ucs_row(item: dict[str, Any]) -> dict[str, Any]:
         "operator_country_code": operator_country_code,
         "operator_country_name": operator_country_name,
         "owner_name": _pick(item, "Operator/Owner"),
+        "owner_country_code": operator_country_code,
+        "owner_country_name": operator_country_name,
         "purpose_primary": _pick(item, "Purpose", "Users"),
         "mission_class": _pick(item, "Class of Orbit"),
         "launch_date": _pick(item, "Date of Launch"),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from typing import Any
@@ -9,18 +10,20 @@ from atlas_weave.context import AgentContext
 from atlas_weave.tool import Tool, run_llm_operation
 from atlas_weave.tools.http_tool import HttpTool
 
+logger = logging.getLogger(__name__)
+
 ANTHROPIC_PRICING = {
     "claude-3-5-haiku-20241022": (0.80, 4.00),
     "claude-3-5-haiku-latest": (0.80, 4.00),
+    "claude-haiku-4-5-20251001": (0.80, 4.00),
     "claude-3-5-sonnet-20241022": (3.00, 15.00),
     "claude-3-5-sonnet-latest": (3.00, 15.00),
     "claude-3-7-sonnet-latest": (3.00, 15.00),
 }
-OPENROUTER_PRICING = {
-    "anthropic/claude-3.5-haiku": (0.80, 4.00),
-    "openai/gpt-4.1-mini": (0.40, 1.60),
-    "openai/gpt-4o-mini": (0.15, 0.60),
-}
+
+# Lazily populated from the OpenRouter /api/v1/models endpoint.
+# Maps model ID → (prompt_rate_per_million, completion_rate_per_million).
+_openrouter_pricing_cache: dict[str, tuple[float, float]] | None = None
 
 
 @dataclass(slots=True)
@@ -143,6 +146,8 @@ class OpenRouterProvider(_BaseProvider):
         temperature: float,
         json_schema: dict[str, Any] | None,
     ) -> LLMProviderResponse:
+        await _ensure_openrouter_pricing(self.http_tool, ctx)
+
         body: dict[str, Any] = {
             "model": model,
             "messages": _openai_messages(messages, system),
@@ -257,6 +262,43 @@ def _credential_env_var(provider: str) -> str:
     raise ValueError(f"unsupported LLM provider: {provider}")
 
 
+async def _ensure_openrouter_pricing(http_tool: HttpTool, ctx: AgentContext) -> None:
+    """Fetch and cache model pricing from the OpenRouter API (once per process)."""
+    global _openrouter_pricing_cache  # noqa: PLW0603
+    if _openrouter_pricing_cache is not None:
+        return
+    try:
+        response = await http_tool.call(
+            ctx,
+            method="GET",
+            url="https://openrouter.ai/api/v1/models",
+            headers={"Content-Type": "application/json"},
+        )
+        body = response.json_body or {}
+        models = body.get("data") or (body if isinstance(body, list) else [])
+        pricing_map: dict[str, tuple[float, float]] = {}
+        for model_entry in models:
+            model_id = model_entry.get("id")
+            pricing = model_entry.get("pricing")
+            if not model_id or not isinstance(pricing, dict):
+                continue
+            try:
+                prompt_per_token = float(pricing.get("prompt") or 0)
+                completion_per_token = float(pricing.get("completion") or 0)
+            except (TypeError, ValueError):
+                continue
+            # Convert per-token to per-million-token rates
+            pricing_map[model_id] = (
+                round(prompt_per_token * 1_000_000, 4),
+                round(completion_per_token * 1_000_000, 4),
+            )
+        _openrouter_pricing_cache = pricing_map
+        logger.info("Fetched OpenRouter pricing for %d models", len(pricing_map))
+    except Exception:  # noqa: BLE001
+        logger.warning("Failed to fetch OpenRouter model pricing; using hardcoded fallback")
+        _openrouter_pricing_cache = {}
+
+
 def _openai_messages(
     messages: list[dict[str, Any]],
     system: str | None,
@@ -356,18 +398,17 @@ def _openrouter_cost(
     prompt_tokens: int,
     completion_tokens: int,
 ) -> float:
+    # Prefer cost reported directly by OpenRouter in the response
     usage = payload.get("usage") or {}
     for key in ("cost", "estimated_cost", "total_cost"):
         if key in usage:
             return float(usage[key])
         if key in payload:
             return float(payload[key])
-    return _estimate_cost(
-        str(payload.get("model") or model),
-        prompt_tokens,
-        completion_tokens,
-        OPENROUTER_PRICING,
-    )
+    # Fall back to computing from cached API pricing
+    resolved_model = str(payload.get("model") or model)
+    pricing = _openrouter_pricing_cache or {}
+    return _estimate_cost(resolved_model, prompt_tokens, completion_tokens, pricing)
 
 
 def _estimate_cost(

@@ -62,7 +62,7 @@ class SatelliteEnrichmentRecipe(Recipe):
         },
         "llm_model": {
             "type": "string",
-            "default": "nvidia/nemotron-3-super-120b-a12b:free",
+            "default": "anthropic/claude-haiku-4-5-20251001",
             "description": "Model slug for the selected LLM provider.",
         },
         "openrouter_api_key": {
@@ -120,6 +120,11 @@ class SatelliteEnrichmentRecipe(Recipe):
         "record_limit": {
             "type": "number",
             "description": "Optional development-only cap on the number of merged records to process.",
+        },
+        "skip_research_constellations": {
+            "type": "array",
+            "default": ["starlink", "oneweb"],
+            "description": "Constellation names (lowercase) to skip during LLM research. These large constellations share identical metadata across thousands of satellites.",
         },
     }
 

@@ -9,7 +9,13 @@ from typing import Any
 from atlas_weave import Agent, AgentContext, AgentResult
 from atlas_weave.tools.llm_tool import LLMTool
 from recipes.satellite_enrichment import db
+from recipes.satellite_enrichment.research_sources import EvidenceResult, gather_evidence
 from recipes.satellite_enrichment.schema import LLM_ALLOWED_FIELDS, compute_completeness, utc_now
+
+
+# Large constellations where all members share the same operator/manufacturer/purpose.
+# Researching each satellite individually is wasteful — skip by default.
+_DEFAULT_SKIP_CONSTELLATIONS = {"starlink", "oneweb"}
 
 
 @dataclass(slots=True)
@@ -42,7 +48,7 @@ class ResearchSwarm(Agent):
             return AgentResult(summary={"skipped": True, "reason": "max_research_records is 0"})
 
         provider = str(ctx.config.get("llm_provider", "openrouter"))
-        model = str(ctx.config.get("llm_model", "nvidia/nemotron-3-super-120b-a12b:free"))
+        model = str(ctx.config.get("llm_model", "anthropic/claude-haiku-4-5-20251001"))
         llm_tool = ctx.tools.llm
         if not isinstance(llm_tool, LLMTool) or not llm_tool.has_credentials(provider):
             ctx.state["_run_summary"] = {
@@ -62,11 +68,31 @@ class ResearchSwarm(Agent):
                 }
             )
 
+        # Constellations to skip research for — these have thousands of identical satellites
+        skip_constellations = set(ctx.config.get("skip_research_constellations", _DEFAULT_SKIP_CONSTELLATIONS))
+
         queue_rows = db.fetch_stage_payloads(output_db_path, "research_queue", ctx.run_id)
+        all_payloads = [row["payload"] for row in queue_rows]
+        skipped_count = 0
+        if skip_constellations:
+            filtered = []
+            for payload in all_payloads:
+                constellation = str(payload.get("record", {}).get("constellation_name") or "").lower()
+                if constellation in skip_constellations:
+                    skipped_count += 1
+                else:
+                    filtered.append(payload)
+            all_payloads = filtered
         candidates = sorted(
-            [row["payload"] for row in queue_rows],
+            all_payloads,
             key=lambda item: tuple(item.get("priority", [0, 0.0, 0])),
         )[:max_research_records]
+        if skipped_count:
+            ctx.emit.log(
+                self.name,
+                "info",
+                f"Skipped {skipped_count} satellites from constellations: {', '.join(sorted(skip_constellations))}",
+            )
         if not candidates:
             ctx.state["_run_summary"] = {
                 **ctx.state.get("_run_summary", {}),
@@ -96,6 +122,7 @@ class ResearchSwarm(Agent):
         worker_semaphore = asyncio.Semaphore(worker_limit)
         llm_semaphore = asyncio.Semaphore(llm_limit)
         confidence_threshold = float(ctx.config.get("llm_confidence_threshold", 0.7))
+        shared_evidence: dict[str, list[EvidenceResult]] = {}
         category_plans = _plan_categories(candidates)
 
         ctx.emit.graph_patch(
@@ -142,7 +169,8 @@ class ResearchSwarm(Agent):
                     confidence_threshold=confidence_threshold,
                     worker_semaphore=worker_semaphore,
                     llm_semaphore=llm_semaphore,
-                    category_plan=category_plans[_category_key(candidate["record"])],
+                    category_plan=category_plans[_category_key(candidate)],
+                    shared_evidence=shared_evidence,
                     ordinal=index,
                     total=len(candidates),
                 )
@@ -273,6 +301,7 @@ async def _run_worker(
     worker_semaphore: asyncio.Semaphore,
     llm_semaphore: asyncio.Semaphore,
     category_plan: dict[str, Any],
+    shared_evidence: dict[str, list[EvidenceResult]],
     ordinal: int,
     total: int,
 ) -> WorkerOutcome:
@@ -301,27 +330,12 @@ async def _run_worker(
             f"[{ordinal}/{total}] Researching {label} in {category_label}",
         )
 
-        query = _build_query(record, missing_fields, conflict_fields)
-        search = await worker_ctx.tools.web_search.call(worker_ctx, query=query, max_results=4)
-        provider_attempts = list(search.get("provider_attempts") or [])
-        failures = list(search.get("failures") or [])
-        results = list(search.get("results") or [])
+        # Phase 1: Gather evidence from targeted sources
+        evidence_results = await gather_evidence(
+            worker_ctx, record, missing_fields, conflict_fields, shared_evidence
+        )
 
-        scraped_pages = []
-        for result in results[:2]:
-            try:
-                scraped_pages.append(
-                    await worker_ctx.tools.web_scrape.call(
-                        worker_ctx,
-                        url=str(result["url"]),
-                        max_chars=2000,
-                        max_links=6,
-                    )
-                )
-            except Exception as error:  # noqa: BLE001
-                worker_ctx.emit.log(category_node_id, "warning", f"Skipping scrape for {result['url']}: {error}")
-
-        if not results and not scraped_pages:
+        if not evidence_results:
             worker_ctx.emit.log(category_node_id, "warning", f"No evidence found for {label}")
             record["llm_research_status"] = "no_evidence"
             record["updated_at_utc"] = utc_now()
@@ -340,11 +354,7 @@ async def _run_worker(
                     "status": "no_evidence",
                     "payload_json": json.dumps(
                         {
-                            "query": query,
-                            "provider_attempts": provider_attempts,
-                            "failures": failures,
-                            "search_results": results,
-                            "scraped_pages": scraped_pages,
+                            "evidence_sources": [ev.source_name for ev in evidence_results],
                             "accepted": False,
                             "missing_fields": missing_fields,
                             "conflict_fields": conflict_fields,
@@ -355,6 +365,70 @@ async def _run_worker(
                 },
             )
 
+        # Phase 2: Pre-fill structured fields (e.g., from Wikipedia infobox)
+        structured_fields: dict[str, Any] = {}
+        for ev in evidence_results:
+            for k, v in ev.structured_fields.items():
+                if k not in structured_fields:
+                    structured_fields[k] = v
+
+        prefilled_fields: list[str] = []
+        for field_name, value in _validated_fields(structured_fields).items():
+            if record.get(field_name) in {None, ""}:
+                record[field_name] = value
+                prefilled_fields.append(field_name)
+
+        remaining_missing = [f for f in missing_fields if f not in prefilled_fields]
+        all_evidence_urls = [url for ev in evidence_results for url in ev.evidence_urls]
+
+        # Phase 3: Skip LLM if all gaps filled by structured data
+        if not remaining_missing and not conflict_fields:
+            record["source_llm"] = json.dumps(
+                {
+                    "fields": sorted(prefilled_fields),
+                    "source": "structured_evidence",
+                    "confidence": 0.95,
+                    "evidence_urls": all_evidence_urls,
+                },
+                separators=(",", ":"),
+            )
+            record["llm_research_status"] = "accepted"
+            record["data_completeness_pct"] = compute_completeness(record)
+            record["updated_at_utc"] = utc_now()
+            worker_ctx.emit.log(
+                category_node_id,
+                "info",
+                f"{label}: accepted with {len(prefilled_fields)} structured fields (no LLM needed)",
+            )
+            return WorkerOutcome(
+                category_node_id=category_node_id,
+                category_label=category_label,
+                record=record,
+                accepted=True,
+                errored=False,
+                status="accepted",
+                result_row={
+                    "run_id": parent_ctx.run_id,
+                    "norad_id": norad_id,
+                    "source_key": "structured_evidence",
+                    "label": label,
+                    "status": "accepted",
+                    "payload_json": json.dumps(
+                        {
+                            "evidence_sources": [ev.source_name for ev in evidence_results],
+                            "structured_fields": structured_fields,
+                            "prefilled_fields": prefilled_fields,
+                            "accepted": True,
+                            "missing_fields": missing_fields,
+                            "conflict_fields": conflict_fields,
+                        },
+                        separators=(",", ":"),
+                    ),
+                    "created_at_utc": utc_now(),
+                },
+            )
+
+        # Phase 4: Call LLM for remaining gaps
         try:
             async with llm_semaphore:
                 llm_output = await _call_llm_with_heartbeat(
@@ -363,15 +437,61 @@ async def _run_worker(
                     model=model,
                     llm_tool=llm_tool,
                     record=record,
-                    missing_fields=missing_fields,
+                    missing_fields=remaining_missing,
                     conflict_fields=conflict_fields,
-                    search_results=results,
-                    scraped_pages=scraped_pages,
+                    evidence_results=evidence_results,
                     label=label,
                     ordinal=ordinal,
                     total=total,
                 )
         except Exception as error:  # noqa: BLE001
+            # Even on LLM error, keep any structured pre-fills
+            if prefilled_fields:
+                record["source_llm"] = json.dumps(
+                    {
+                        "fields": sorted(prefilled_fields),
+                        "source": "structured_evidence",
+                        "confidence": 0.95,
+                        "evidence_urls": all_evidence_urls,
+                    },
+                    separators=(",", ":"),
+                )
+                record["llm_research_status"] = "accepted"
+                record["data_completeness_pct"] = compute_completeness(record)
+                record["updated_at_utc"] = utc_now()
+                worker_ctx.emit.log(
+                    category_node_id,
+                    "warning",
+                    f"{label}: LLM failed but kept {len(prefilled_fields)} structured fields: {error}",
+                )
+                return WorkerOutcome(
+                    category_node_id=category_node_id,
+                    category_label=category_label,
+                    record=record,
+                    accepted=True,
+                    errored=False,
+                    status="accepted",
+                    result_row={
+                        "run_id": parent_ctx.run_id,
+                        "norad_id": norad_id,
+                        "source_key": "structured_evidence",
+                        "label": label,
+                        "status": "accepted",
+                        "payload_json": json.dumps(
+                            {
+                                "evidence_sources": [ev.source_name for ev in evidence_results],
+                                "prefilled_fields": prefilled_fields,
+                                "llm_error": str(error),
+                                "accepted": True,
+                                "missing_fields": missing_fields,
+                                "conflict_fields": conflict_fields,
+                            },
+                            separators=(",", ":"),
+                        ),
+                        "created_at_utc": utc_now(),
+                    },
+                )
+
             record["llm_research_status"] = "error"
             record["updated_at_utc"] = utc_now()
             worker_ctx.emit.log(category_node_id, "error", f"{label} failed: {error}")
@@ -390,11 +510,7 @@ async def _run_worker(
                     "status": "error",
                     "payload_json": json.dumps(
                         {
-                            "query": query,
-                            "provider_attempts": provider_attempts,
-                            "failures": failures,
-                            "search_results": results,
-                            "scraped_pages": scraped_pages,
+                            "evidence_sources": [ev.source_name for ev in evidence_results],
                             "error": str(error),
                             "missing_fields": missing_fields,
                             "conflict_fields": conflict_fields,
@@ -411,15 +527,22 @@ async def _run_worker(
         confidence = float(llm_payload.get("confidence", 0.0))
         accepted = confidence >= confidence_threshold and bool(validated_fields)
 
+        # Merge LLM fields with pre-filled structured fields
+        all_accepted_fields = dict(zip(prefilled_fields, [record[f] for f in prefilled_fields]))
         if accepted:
             for field_name, value in validated_fields.items():
                 if record.get(field_name) in {None, ""}:
                     record[field_name] = value
+                    all_accepted_fields[field_name] = value
+
+        total_accepted = bool(all_accepted_fields)
+        if total_accepted:
+            evidence_urls = list(llm_payload.get("evidence_urls") or []) + all_evidence_urls
             record["source_llm"] = json.dumps(
                 {
-                    "fields": sorted(validated_fields.keys()),
-                    "confidence": confidence,
-                    "evidence_urls": llm_payload.get("evidence_urls", []),
+                    "fields": sorted(all_accepted_fields.keys()),
+                    "confidence": max(confidence, 0.95) if prefilled_fields else confidence,
+                    "evidence_urls": evidence_urls,
                 },
                 separators=(",", ":"),
             )
@@ -431,19 +554,17 @@ async def _run_worker(
             status = "rejected"
 
         record["updated_at_utc"] = utc_now()
-        accepted_fields = sorted(validated_fields.keys()) if accepted else []
-        evidence_urls = list(llm_payload.get("evidence_urls") or [])
         worker_ctx.emit.log(
             category_node_id,
             "info",
-            f"{label}: {status.replace('_', ' ')} with {len(accepted_fields)} accepted fields",
+            f"{label}: {status} with {len(all_accepted_fields)} fields ({len(prefilled_fields)} structured, {len(validated_fields) if accepted else 0} LLM)",
         )
 
         return WorkerOutcome(
             category_node_id=category_node_id,
             category_label=category_label,
             record=record,
-            accepted=accepted,
+            accepted=total_accepted,
             errored=False,
             status=status,
             result_row={
@@ -454,14 +575,12 @@ async def _run_worker(
                 "status": status,
                 "payload_json": json.dumps(
                     {
-                        "query": query,
-                        "provider_attempts": provider_attempts,
-                        "failures": failures,
-                        "search_results": results,
-                        "scraped_pages": scraped_pages,
+                        "evidence_sources": [ev.source_name for ev in evidence_results],
+                        "structured_fields": structured_fields,
+                        "prefilled_fields": prefilled_fields,
                         "llm_output": llm_payload,
                         "validated_fields": validated_fields,
-                        "accepted": accepted,
+                        "accepted": total_accepted,
                         "missing_fields": missing_fields,
                         "conflict_fields": conflict_fields,
                     },
@@ -481,32 +600,23 @@ async def _call_llm_with_heartbeat(
     record: dict[str, Any],
     missing_fields: list[str],
     conflict_fields: list[str],
-    search_results: list[dict[str, Any]],
-    scraped_pages: list[dict[str, Any]],
+    evidence_results: list[EvidenceResult],
     label: str,
     ordinal: int,
     total: int,
 ) -> dict[str, Any]:
+    prompt = _build_llm_prompt(record, missing_fields, conflict_fields, evidence_results, label)
     task = asyncio.create_task(
         llm_tool.call(
             ctx,
             provider=provider,
             model=model,
-            system="You enrich satellite records for Atlas Weave. Return factual JSON only.",
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        "Fill missing metadata for this satellite. "
-                        "Only provide fields you can support from the evidence.\n"
-                        f"Record: {record}\n"
-                        f"Missing fields: {missing_fields}\n"
-                        f"Conflicting fields: {conflict_fields}\n"
-                        f"Search results: {search_results}\n"
-                        f"Scraped pages: {scraped_pages}"
-                    ),
-                }
-            ],
+            system=(
+                "You enrich satellite metadata for Atlas Weave. "
+                "Extract ONLY fields you can directly support from the evidence. "
+                "Return factual JSON only — never guess or hallucinate values."
+            ),
+            messages=[{"role": "user", "content": prompt}],
             json_schema=_llm_schema(),
             max_tokens=600,
             temperature=0.1,
@@ -552,6 +662,8 @@ def _llm_schema() -> dict[str, Any]:
                     "mission_class": {"type": "string"},
                     "operator_type": {"type": "string"},
                     "civilian_military": {"type": "string"},
+                    "object_type": {"type": "string"},
+                    "launch_date": {"type": "string"},
                 },
                 "additionalProperties": False,
             },
@@ -562,66 +674,175 @@ def _llm_schema() -> dict[str, Any]:
     }
 
 
-def _build_query(record: dict[str, Any], missing_fields: list[str], conflict_fields: list[str]) -> str:
-    metadata_terms = []
-    if any(field.startswith("operator") or field.startswith("owner") for field in missing_fields):
-        metadata_terms.append("operator owner")
-    if any(field.startswith("purpose") or field == "mission_class" for field in missing_fields):
-        metadata_terms.append("mission purpose")
-    if any(field in {"manufacturer_name", "bus_platform", "dry_mass_kg", "design_life_years", "program_name"} for field in missing_fields):
-        metadata_terms.append("manufacturer mass bus")
-    if conflict_fields:
-        metadata_terms.append("satellite facts")
-    parts = [
-        record.get("object_name"),
-        str(record.get("norad_id")) if record.get("norad_id") else None,
-        record.get("international_designator"),
-        "satellite",
-        " ".join(metadata_terms) if metadata_terms else "operator mission manufacturer",
-    ]
-    return " ".join(str(part).strip() for part in parts if part)
+_ORBITAL_FIELDS = {
+    "tle_line1", "tle_line2", "inclination_deg", "eccentricity", "period_min",
+    "mean_motion_rev_per_day", "semi_major_axis_km", "perigee_km", "apogee_km",
+    "altitude_km", "raan_deg", "arg_perigee_deg", "mean_anomaly_deg", "epoch_utc",
+    "source_space_track", "source_discos", "source_ucs", "source_celestrak",
+    "source_llm", "data_completeness_pct", "enrichment_confidence",
+    "created_at_utc", "updated_at_utc", "last_verified_at_utc",
+    "llm_research_status", "radar_cross_section_m2", "alternate_names_json",
+}
 
 
-def _category_key(record: dict[str, Any]) -> str:
+def _slim_record(record: dict[str, Any]) -> dict[str, Any]:
+    """Strip orbital/TLE/stage fields — the LLM doesn't need them."""
+    return {k: v for k, v in record.items() if k not in _ORBITAL_FIELDS and v not in {None, ""}}
+
+
+def _build_llm_prompt(
+    record: dict[str, Any],
+    missing_fields: list[str],
+    conflict_fields: list[str],
+    evidence_results: list[EvidenceResult],
+    label: str,
+) -> str:
+    """Build a structured LLM prompt with evidence sections."""
+    norad_id = record.get("norad_id", "unknown")
+    slim = _slim_record(record)
+    slim_json = json.dumps(slim, indent=2, default=str)
+
+    missing_bullets = "\n".join(f"- {f}" for f in missing_fields) if missing_fields else "- (none)"
+    conflict_bullets = "\n".join(f"- {f}" for f in conflict_fields) if conflict_fields else "- (none)"
+
+    evidence_sections: list[str] = []
+    for ev in evidence_results:
+        if ev.scraped_text:
+            urls = ", ".join(ev.evidence_urls) if ev.evidence_urls else "N/A"
+            # Limit each source to 1500 chars
+            text = ev.scraped_text[:1500]
+            evidence_sections.append(f"### {ev.source_name.title()} ({urls})\n{text}")
+
+    evidence_text = "\n\n".join(evidence_sections) if evidence_sections else "(no evidence available)"
+
+    return f"""You are enriching satellite metadata for **{label}** (NORAD {norad_id}).
+
+## Current Record (relevant fields only)
+```json
+{slim_json}
+```
+
+## Fields Needed
+{missing_bullets}
+
+## Conflicting Fields
+{conflict_bullets}
+
+## Evidence Sources
+{evidence_text}
+
+Extract ONLY fields you can directly support from the evidence above.
+Set confidence 0.9+ if evidence directly states values,
+0.7–0.9 if strongly implied, below 0.7 if uncertain.
+Include evidence_urls for each source you used."""
+
+
+# CelesTrak meta-groups that shouldn't be used as categories — they're aggregation groups, not classifications.
+_META_CELESTRAK_GROUPS = {
+    "active", "visual", "analyst", "tle-new", "last-30-days",
+    "active-geo", "geo-protected", "other",
+}
+
+# Mapping from CelesTrak group slugs to human-readable labels
+_CELESTRAK_GROUP_LABELS: dict[str, str] = {
+    "stations": "Space Stations",
+    "weather": "Weather",
+    "noaa": "NOAA",
+    "goes": "GOES",
+    "resource": "Earth Resources",
+    "earth-resources": "Earth Resources",
+    "sarsat": "Search & Rescue (SARSAT)",
+    "dmc": "Disaster Monitoring",
+    "tdrss": "Tracking & Data Relay",
+    "argos": "ARGOS",
+    "planet": "Planet Labs",
+    "spire": "Spire",
+    "geo": "Geostationary",
+    "intelsat": "Intelsat",
+    "intelsat-geo": "Intelsat GEO",
+    "ses": "SES",
+    "iridium": "Iridium",
+    "starlink": "Starlink",
+    "oneweb": "OneWeb",
+    "orbcomm": "Orbcomm",
+    "globalstar": "Globalstar",
+    "amateur": "Amateur Radio",
+    "x-comm": "Experimental Comms",
+    "other-comm": "Other Comms",
+    "communications": "Communications",
+    "gps-ops": "GPS",
+    "glo-ops": "GLONASS",
+    "galileo": "Galileo",
+    "beidou": "BeiDou",
+    "gnss": "GNSS",
+    "navigation": "Navigation",
+    "satnogs": "SatNOGS",
+    "cubesat": "CubeSats",
+    "education": "Education",
+    "engineering": "Engineering",
+    "geodetic": "Geodetic",
+    "science": "Science",
+    "radar": "Radar",
+    "military": "Military",
+    "musson": "Musson",
+}
+
+
+def _category_key(candidate: dict[str, Any]) -> str:
+    """Derive a category key from CelesTrak groups first, then fall back to record fields."""
+    record = candidate.get("record", candidate)
+    celestrak_groups = list(candidate.get("celestrak_groups") or [])
+
     if record.get("is_debris"):
         return "orbital_debris"
     object_name = str(record.get("object_name") or "").upper()
     object_type = str(record.get("object_type") or "").upper()
     if "R/B" in object_name or "ROCKET" in object_type:
         return "rocket_bodies"
-    if record.get("is_crewed"):
-        return "crewed_platforms"
-    constellation_name = str(record.get("constellation_name") or "").strip()
-    if constellation_name and constellation_name.lower() not in {"visual", "active", "analyst"}:
-        return f"constellation_{_slugify(constellation_name)}"
+
+    # Use the most specific CelesTrak group as the category
+    specific_groups = [g for g in celestrak_groups if g not in _META_CELESTRAK_GROUPS]
+    if specific_groups:
+        # Prefer the most specific (shortest) group name
+        best = sorted(specific_groups, key=len)[0]
+        return f"celestrak_{_slugify(best)}"
+
+    # Fall back to constellation_name from the record
+    constellation_name = str(record.get("constellation_name") or "").strip().lower()
+    if constellation_name and constellation_name not in _META_CELESTRAK_GROUPS:
+        return f"celestrak_{_slugify(constellation_name)}"
+
+    # Last resort: orbit class grouping
     orbit_class = str(record.get("orbit_class") or "").strip().upper() or "UNKNOWN"
-    active_status = str(record.get("active_status") or "").strip().lower() or "unknown"
-    return f"{active_status}_{orbit_class.lower()}_satellites"
+    return f"other_{orbit_class.lower()}"
 
 
-def _category_label(record: dict[str, Any]) -> str:
-    key = _category_key(record)
+def _category_label(candidate: dict[str, Any]) -> str:
+    key = _category_key(candidate)
     if key == "orbital_debris":
         return "Orbital Debris"
     if key == "rocket_bodies":
         return "Rocket Bodies"
-    if key == "crewed_platforms":
-        return "Crewed Platforms"
-    if key.startswith("constellation_"):
-        name = str(record.get("constellation_name") or "Constellation").strip()
-        return f"{name} Constellation"
-    orbit_class = str(record.get("orbit_class") or "Unknown").strip().upper()
-    active_status = str(record.get("active_status") or "unknown").strip().capitalize()
-    return f"{active_status} {orbit_class} Satellites"
+    if key.startswith("celestrak_"):
+        slug = key[len("celestrak_"):]
+        # Check the label map
+        for group_slug, label in _CELESTRAK_GROUP_LABELS.items():
+            if _slugify(group_slug) == slug:
+                return label
+        # Fall back to titleizing the slug
+        return slug.replace("_", " ").title()
+    if key.startswith("other_"):
+        orbit_class = key[len("other_"):].upper()
+        return f"Other {orbit_class}"
+    return key.replace("_", " ").title()
 
 
 def _plan_categories(candidates: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     plans: dict[str, dict[str, Any]] = {}
     for candidate in candidates:
-        record = dict(candidate["record"])
-        key = _category_key(record)
+        key = _category_key(candidate)
         if key not in plans:
-            label = _category_label(record)
+            label = _category_label(candidate)
             plans[key] = {
                 "node_id": f"research_category_{_slugify(key)}",
                 "label": label,
