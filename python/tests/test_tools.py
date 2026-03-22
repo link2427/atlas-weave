@@ -1,42 +1,20 @@
 from __future__ import annotations
 
 import json
-from io import StringIO
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 
-from atlas_weave.context import AgentContext, CancellationToken
-from atlas_weave.events import EventEmitter
+from atlas_weave.context import AgentContext
 from atlas_weave.runner import run_recipe
-from atlas_weave.tool import ToolRegistry
 from atlas_weave.tools.http_tool import HttpTool
 from atlas_weave.tools.llm_tool import LLMTool
 from atlas_weave.tools.sqlite_tool import SQLiteTool
 from atlas_weave.tools.web_scrape_tool import WebScrapeTool
 from atlas_weave.tools.web_search_tool import WebSearchTool
-
-
-def make_context(stream: StringIO | None = None) -> tuple[AgentContext, StringIO]:
-    output = stream or StringIO()
-    ctx = AgentContext(
-        run_id="test-run",
-        node_id="tool_node",
-        config={},
-        db=None,
-        tools=ToolRegistry(),
-        emit=EventEmitter(run_id="test-run", stream=output),
-        cancellation=CancellationToken(),
-        state={},
-    )
-    return ctx, output
-
-
-def read_events(stream: StringIO) -> list[dict[str, Any]]:
-    stream.seek(0)
-    return [json.loads(line) for line in stream.getvalue().splitlines() if line]
+from conftest import make_context, read_events
 
 
 @pytest.mark.anyio
