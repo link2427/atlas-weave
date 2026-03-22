@@ -27,7 +27,9 @@ class SearchResult:
 
 class WebSearchTool(Tool):
     name = "web_search"
-    description = "Run a cached provider-fallback web search that never hard-fails the caller."
+    description = (
+        "Run a cached provider-fallback web search that never hard-fails the caller."
+    )
 
     def __init__(self, http_tool: HttpTool) -> None:
         self.http_tool = http_tool
@@ -179,7 +181,9 @@ async def _search_with_provider(
     ]
 
 
-def _parse_brave_results(payload: dict[str, Any], max_results: int) -> list[dict[str, Any]]:
+def _parse_brave_results(
+    payload: dict[str, Any], max_results: int
+) -> list[dict[str, Any]]:
     web = payload.get("web")
     rows = web.get("results") if isinstance(web, dict) else []
     results: list[dict[str, Any]] = []
@@ -202,7 +206,9 @@ def _parse_brave_results(payload: dict[str, Any], max_results: int) -> list[dict
     return results
 
 
-def _parse_searxng_results(payload: dict[str, Any], max_results: int) -> list[dict[str, Any]]:
+def _parse_searxng_results(
+    payload: dict[str, Any], max_results: int
+) -> list[dict[str, Any]]:
     rows = payload.get("results")
     results: list[dict[str, Any]] = []
     if not isinstance(rows, list):
@@ -232,12 +238,16 @@ def _parse_duckduckgo_results(html: str, max_results: int) -> list[SearchResult]
         link = container.select_one(".result__a, .result__title a, a")
         if link is None:
             continue
-        snippet = container.select_one(".result__snippet, .result__body, .result-snippet")
+        snippet = container.select_one(
+            ".result__snippet, .result__body, .result-snippet"
+        )
         results.append(
             SearchResult(
                 title=" ".join(link.get_text(" ", strip=True).split()),
                 url=link.get("href", ""),
-                snippet=" ".join((snippet.get_text(" ", strip=True) if snippet else "").split()),
+                snippet=" ".join(
+                    (snippet.get_text(" ", strip=True) if snippet else "").split()
+                ),
             )
         )
         if len(results) >= max_results:
@@ -287,7 +297,9 @@ def _load_cache(cache_key: str) -> dict[str, Any] | None:
     if datetime.now(UTC) - fetched_at > CACHE_TTL:
         with sqlite3.connect(_cache_db_path()) as conn:
             _ensure_cache(conn)
-            conn.execute("DELETE FROM web_search_cache WHERE cache_key = ?", (cache_key,))
+            conn.execute(
+                "DELETE FROM web_search_cache WHERE cache_key = ?", (cache_key,)
+            )
             conn.commit()
         return None
 

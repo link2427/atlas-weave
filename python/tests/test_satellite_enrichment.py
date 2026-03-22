@@ -19,7 +19,11 @@ from recipes.satellite_enrichment.research_sources import (
     _parse_wikipedia_infobox,
 )
 from recipes.satellite_enrichment.constellation_templates import CONSTELLATION_TEMPLATES
-from recipes.satellite_enrichment.schema import compute_completeness, derive_constellation_name, derive_orbit_class
+from recipes.satellite_enrichment.schema import (
+    compute_completeness,
+    derive_constellation_name,
+    derive_orbit_class,
+)
 from recipes.satellite_enrichment.sources import (
     SourceBundle,
     _load_snapshot,
@@ -121,7 +125,12 @@ def build_source_bundle() -> SourceBundle:
                 "expected_life_years": 5.0,
             }
         ],
-        source_status={"space_track": "disabled", "celestrak": "cached", "discos": "live", "ucs": "file"},
+        source_status={
+            "space_track": "disabled",
+            "celestrak": "cached",
+            "discos": "live",
+            "ucs": "file",
+        },
         cached_sources=["celestrak"],
         stale_sources=[],
         source_snapshots=[
@@ -159,7 +168,9 @@ def test_schema_derivations_cover_orbit_and_constellation() -> None:
 
 def test_read_text_file_with_fallbacks_accepts_cp1252_bytes(tmp_path: Path) -> None:
     csv_path = tmp_path / "ucs.csv"
-    csv_path.write_bytes("NORAD Number,Operator/Owner\n25544,ACME\xa0Space\n".encode("cp1252"))
+    csv_path.write_bytes(
+        "NORAD Number,Operator/Owner\n25544,ACME\xa0Space\n".encode("cp1252")
+    )
 
     text = _read_text_file_with_fallbacks(str(csv_path))
 
@@ -179,7 +190,9 @@ def test_parse_space_track_payload_rejects_error_objects() -> None:
         )
 
 
-def test_source_snapshot_round_trip_uses_cache_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_source_snapshot_round_trip_uses_cache_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     monkeypatch.setenv("ATLAS_WEAVE_DATA_DIR", str(tmp_path))
 
     snapshot = _write_snapshot(
@@ -204,17 +217,30 @@ def test_recipe_run_creates_output_db_and_latest_manifest(
     async def fake_fetch_source_bundle(_: Any) -> SourceBundle:
         return build_source_bundle()
 
-    async def fake_http(self: HttpTool, ctx: Any, *, method: str, url: str, **kwargs: Any) -> HttpToolResponse:
+    async def fake_http(
+        self: HttpTool, ctx: Any, *, method: str, url: str, **kwargs: Any
+    ) -> HttpToolResponse:
         """Mock HTTP tool that handles Wikipedia API calls."""
         params = kwargs.get("params") or {}
         if "wikipedia.org" in url and params.get("list") == "search":
             return HttpToolResponse(
-                method="GET", url=url, final_url=url, status_code=200,
-                headers={}, content_type="application/json", body_bytes=200,
-                text=None, text_preview="",
+                method="GET",
+                url=url,
+                final_url=url,
+                status_code=200,
+                headers={},
+                content_type="application/json",
+                body_bytes=200,
+                text=None,
+                text_preview="",
                 json_body={
                     "query": {
-                        "search": [{"title": "Starlink", "snippet": "SpaceX satellite constellation"}]
+                        "search": [
+                            {
+                                "title": "Starlink",
+                                "snippet": "SpaceX satellite constellation",
+                            }
+                        ]
                     }
                 },
             )
@@ -231,9 +257,15 @@ def test_recipe_run_creates_output_db_and_latest_manifest(
                 "'''Starlink''' is a satellite internet constellation operated by SpaceX."
             )
             return HttpToolResponse(
-                method="GET", url=url, final_url=url, status_code=200,
-                headers={}, content_type="application/json", body_bytes=500,
-                text=None, text_preview="",
+                method="GET",
+                url=url,
+                final_url=url,
+                status_code=200,
+                headers={},
+                content_type="application/json",
+                body_bytes=500,
+                text=None,
+                text_preview="",
                 json_body={
                     "query": {
                         "pages": {
@@ -246,28 +278,53 @@ def test_recipe_run_creates_output_db_and_latest_manifest(
                 },
             )
         return HttpToolResponse(
-            method="GET", url=url, final_url=url, status_code=404,
-            headers={}, content_type="text/html", body_bytes=0,
-            text="Not found", text_preview="Not found", json_body=None,
+            method="GET",
+            url=url,
+            final_url=url,
+            status_code=404,
+            headers={},
+            content_type="text/html",
+            body_bytes=0,
+            text="Not found",
+            text_preview="Not found",
+            json_body=None,
         )
 
-    async def fake_scrape(self: WebScrapeTool, ctx: Any, *, url: str, max_chars: int = 2000, max_links: int = 6) -> dict[str, Any]:
+    async def fake_scrape(
+        self: WebScrapeTool,
+        ctx: Any,
+        *,
+        url: str,
+        max_chars: int = 2000,
+        max_links: int = 6,
+    ) -> dict[str, Any]:
         if "n2yo.com" in url:
             return {
-                "url": url, "title": "N2YO Satellite", "links": [], "link_count": 0,
+                "url": url,
+                "title": "N2YO Satellite",
+                "links": [],
+                "link_count": 0,
                 "text": "Satellite details: operated by SpaceX for communications.",
             }
         if "skyrocket.de" in url:
             return {
-                "url": url, "title": "Gunter's Space Page", "links": [], "link_count": 0,
+                "url": url,
+                "title": "Gunter's Space Page",
+                "links": [],
+                "link_count": 0,
                 "text": "Starlink satellite specs: mass 260 kg, operator SpaceX, manufacturer SpaceX.",
             }
         return {
-            "url": url, "title": "Example Starlink", "links": [], "link_count": 0,
+            "url": url,
+            "title": "Example Starlink",
+            "links": [],
+            "link_count": 0,
             "text": "SpaceX operates the Starlink communications constellation. Each satellite has a dry mass near 260 kg.",
         }
 
-    async def fake_search(self: WebSearchTool, ctx: Any, *, query: str, max_results: int = 4) -> dict[str, Any]:
+    async def fake_search(
+        self: WebSearchTool, ctx: Any, *, query: str, max_results: int = 4
+    ) -> dict[str, Any]:
         return {
             "query": query,
             "results": [
@@ -301,7 +358,10 @@ def test_recipe_run_creates_output_db_and_latest_manifest(
         }
 
     monkeypatch.setenv("ATLAS_WEAVE_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr("recipes.satellite_enrichment.agents.collector.fetch_source_bundle", fake_fetch_source_bundle)
+    monkeypatch.setattr(
+        "recipes.satellite_enrichment.agents.collector.fetch_source_bundle",
+        fake_fetch_source_bundle,
+    )
     monkeypatch.setattr(HttpTool, "call", fake_http)
     monkeypatch.setattr(WebSearchTool, "call", fake_search)
     monkeypatch.setattr(WebScrapeTool, "call", fake_scrape)
@@ -323,7 +383,9 @@ def test_recipe_run_creates_output_db_and_latest_manifest(
     events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
     run_completed = next(event for event in events if event["type"] == "run_completed")
     swarm_completed = next(
-        event for event in events if event["type"] == "node_completed" and event["node_id"] == "research_swarm"
+        event
+        for event in events
+        if event["type"] == "node_completed" and event["node_id"] == "research_swarm"
     )
     graph_patch = next(event for event in events if event["type"] == "graph_patch")
 
@@ -340,10 +402,14 @@ def test_recipe_run_creates_output_db_and_latest_manifest(
     assert run_completed["summary"]["accepted_llm_records"] >= 1
     assert run_completed["summary"]["cached_sources"] == ["celestrak"]
     assert run_completed["summary"]["space_track_mode"] == "prefer_cache"
-    assert run_completed["summary"]["coverage_operator_purpose_pct"] == pytest.approx(100.0)
+    assert run_completed["summary"]["coverage_operator_purpose_pct"] == pytest.approx(
+        100.0
+    )
     assert swarm_completed["summary"]["summary"]["started_workers"] == 2
     assert swarm_completed["summary"]["summary"]["accepted_llm_records"] >= 1
-    assert any(node["id"].startswith("research_category_") for node in graph_patch["nodes"])
+    assert any(
+        node["id"].startswith("research_category_") for node in graph_patch["nodes"]
+    )
     assert any(edge[0] == "research_swarm" for edge in graph_patch["edges"])
 
 
@@ -356,13 +422,22 @@ def test_recipe_run_skips_research_when_disabled(
         return build_source_bundle()
 
     monkeypatch.setenv("ATLAS_WEAVE_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr("recipes.satellite_enrichment.agents.collector.fetch_source_bundle", fake_fetch_source_bundle)
+    monkeypatch.setattr(
+        "recipes.satellite_enrichment.agents.collector.fetch_source_bundle",
+        fake_fetch_source_bundle,
+    )
 
-    asyncio.run(run_recipe("satellite_enrichment", "sat-run-no-llm", {"enable_llm_research": False}))
+    asyncio.run(
+        run_recipe(
+            "satellite_enrichment", "sat-run-no-llm", {"enable_llm_research": False}
+        )
+    )
     events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
 
     swarm_node_completed = next(
-        event for event in events if event["type"] == "node_completed" and event["node_id"] == "research_swarm"
+        event
+        for event in events
+        if event["type"] == "node_completed" and event["node_id"] == "research_swarm"
     )
     assert swarm_node_completed["summary"]["summary"]["skipped"] is True
 
@@ -382,18 +457,31 @@ def test_recipe_run_skips_research_when_credentials_are_missing(
         return build_source_bundle()
 
     monkeypatch.setenv("ATLAS_WEAVE_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr("recipes.satellite_enrichment.agents.collector.fetch_source_bundle", fake_fetch_source_bundle)
+    monkeypatch.setattr(
+        "recipes.satellite_enrichment.agents.collector.fetch_source_bundle",
+        fake_fetch_source_bundle,
+    )
     monkeypatch.setattr(LLMTool, "has_credentials", lambda self, provider: False)
 
-    asyncio.run(run_recipe("satellite_enrichment", "sat-run-missing-creds", {"enable_llm_research": True}))
+    asyncio.run(
+        run_recipe(
+            "satellite_enrichment",
+            "sat-run-missing-creds",
+            {"enable_llm_research": True},
+        )
+    )
     events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
 
     swarm_node_completed = next(
-        event for event in events if event["type"] == "node_completed" and event["node_id"] == "research_swarm"
+        event
+        for event in events
+        if event["type"] == "node_completed" and event["node_id"] == "research_swarm"
     )
     run_completed = next(event for event in events if event["type"] == "run_completed")
     assert swarm_node_completed["summary"]["summary"]["skipped"] is True
-    assert run_completed["summary"]["llm_research_status"] == "skipped_missing_credentials"
+    assert (
+        run_completed["summary"]["llm_research_status"] == "skipped_missing_credentials"
+    )
 
 
 def test_recipe_run_tolerates_llm_parse_errors(
@@ -404,16 +492,26 @@ def test_recipe_run_tolerates_llm_parse_errors(
     async def fake_fetch_source_bundle(_: Any) -> SourceBundle:
         return build_source_bundle()
 
-    async def fake_http_no_wiki(self: HttpTool, ctx: Any, *, method: str, url: str, **kwargs: Any) -> HttpToolResponse:
+    async def fake_http_no_wiki(
+        self: HttpTool, ctx: Any, *, method: str, url: str, **kwargs: Any
+    ) -> HttpToolResponse:
         """Return empty Wikipedia search results so no structured fields are found."""
         return HttpToolResponse(
-            method="GET", url=url, final_url=url, status_code=200,
-            headers={}, content_type="application/json", body_bytes=50,
-            text=None, text_preview="",
+            method="GET",
+            url=url,
+            final_url=url,
+            status_code=200,
+            headers={},
+            content_type="application/json",
+            body_bytes=50,
+            text=None,
+            text_preview="",
             json_body={"query": {"search": []}},
         )
 
-    async def fake_search(self: WebSearchTool, ctx: Any, *, query: str, max_results: int = 4) -> dict[str, Any]:
+    async def fake_search(
+        self: WebSearchTool, ctx: Any, *, query: str, max_results: int = 4
+    ) -> dict[str, Any]:
         return {
             "query": query,
             "results": [
@@ -425,7 +523,14 @@ def test_recipe_run_tolerates_llm_parse_errors(
             ][:max_results],
         }
 
-    async def fake_scrape(self: WebScrapeTool, ctx: Any, *, url: str, max_chars: int = 2000, max_links: int = 6) -> dict[str, Any]:
+    async def fake_scrape(
+        self: WebScrapeTool,
+        ctx: Any,
+        *,
+        url: str,
+        max_chars: int = 2000,
+        max_links: int = 6,
+    ) -> dict[str, Any]:
         return {
             "url": url,
             "title": "Example Starlink",
@@ -435,24 +540,37 @@ def test_recipe_run_tolerates_llm_parse_errors(
         }
 
     async def fail_llm(self: LLMTool, ctx: Any, **_: Any) -> dict[str, Any]:
-        raise ValueError('OpenRouter structured output was not valid JSON: { "confidence":0')
+        raise ValueError(
+            'OpenRouter structured output was not valid JSON: { "confidence":0'
+        )
 
     monkeypatch.setenv("ATLAS_WEAVE_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr("recipes.satellite_enrichment.agents.collector.fetch_source_bundle", fake_fetch_source_bundle)
+    monkeypatch.setattr(
+        "recipes.satellite_enrichment.agents.collector.fetch_source_bundle",
+        fake_fetch_source_bundle,
+    )
     monkeypatch.setattr(HttpTool, "call", fake_http_no_wiki)
     monkeypatch.setattr(WebSearchTool, "call", fake_search)
     monkeypatch.setattr(WebScrapeTool, "call", fake_scrape)
     monkeypatch.setattr(LLMTool, "has_credentials", lambda self, provider: True)
     monkeypatch.setattr(LLMTool, "call", fail_llm)
 
-    asyncio.run(run_recipe("satellite_enrichment", "sat-run-parse-error", {
-        "enable_llm_research": True,
-        "skip_research_constellations": [],
-    }))
+    asyncio.run(
+        run_recipe(
+            "satellite_enrichment",
+            "sat-run-parse-error",
+            {
+                "enable_llm_research": True,
+                "skip_research_constellations": [],
+            },
+        )
+    )
     events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
 
     swarm_completed = next(
-        event for event in events if event["type"] == "node_completed" and event["node_id"] == "research_swarm"
+        event
+        for event in events
+        if event["type"] == "node_completed" and event["node_id"] == "research_swarm"
     )
     run_completed = next(event for event in events if event["type"] == "run_completed")
     assert swarm_completed["summary"]["errors"] > 0
@@ -559,6 +677,7 @@ def test_researcher_uses_wikipedia_evidence(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """When Wikipedia returns infobox data, structured fields are accepted without LLM."""
+
     async def fake_fetch_source_bundle(_: Any) -> SourceBundle:
         bundle = build_source_bundle()
         # Only keep the Starlink satellite — it has missing fields
@@ -567,16 +686,26 @@ def test_researcher_uses_wikipedia_evidence(
         bundle.ucs = []
         return bundle
 
-    async def fake_http_with_wiki(self: HttpTool, ctx: Any, *, method: str, url: str, **kwargs: Any) -> HttpToolResponse:
+    async def fake_http_with_wiki(
+        self: HttpTool, ctx: Any, *, method: str, url: str, **kwargs: Any
+    ) -> HttpToolResponse:
         params = kwargs.get("params") or {}
         if "wikipedia.org" in url and params.get("list") == "search":
             return HttpToolResponse(
-                method="GET", url=url, final_url=url, status_code=200,
-                headers={}, content_type="application/json", body_bytes=200,
-                text=None, text_preview="",
+                method="GET",
+                url=url,
+                final_url=url,
+                status_code=200,
+                headers={},
+                content_type="application/json",
+                body_bytes=200,
+                text=None,
+                text_preview="",
                 json_body={
                     "query": {
-                        "search": [{"title": "Starlink", "snippet": "SpaceX constellation"}]
+                        "search": [
+                            {"title": "Starlink", "snippet": "SpaceX constellation"}
+                        ]
                     }
                 },
             )
@@ -592,9 +721,15 @@ def test_researcher_uses_wikipedia_evidence(
                 "}}\n"
             )
             return HttpToolResponse(
-                method="GET", url=url, final_url=url, status_code=200,
-                headers={}, content_type="application/json", body_bytes=500,
-                text=None, text_preview="",
+                method="GET",
+                url=url,
+                final_url=url,
+                status_code=200,
+                headers={},
+                content_type="application/json",
+                body_bytes=500,
+                text=None,
+                text_preview="",
                 json_body={
                     "query": {
                         "pages": {
@@ -607,13 +742,33 @@ def test_researcher_uses_wikipedia_evidence(
                 },
             )
         return HttpToolResponse(
-            method="GET", url=url, final_url=url, status_code=404,
-            headers={}, content_type="text/html", body_bytes=0,
-            text="Not found", text_preview="Not found", json_body=None,
+            method="GET",
+            url=url,
+            final_url=url,
+            status_code=404,
+            headers={},
+            content_type="text/html",
+            body_bytes=0,
+            text="Not found",
+            text_preview="Not found",
+            json_body=None,
         )
 
-    async def fake_scrape(self: WebScrapeTool, ctx: Any, *, url: str, max_chars: int = 2000, max_links: int = 6) -> dict[str, Any]:
-        return {"url": url, "title": "Page", "text": "Satellite info", "links": [], "link_count": 0}
+    async def fake_scrape(
+        self: WebScrapeTool,
+        ctx: Any,
+        *,
+        url: str,
+        max_chars: int = 2000,
+        max_links: int = 6,
+    ) -> dict[str, Any]:
+        return {
+            "url": url,
+            "title": "Page",
+            "text": "Satellite info",
+            "links": [],
+            "link_count": 0,
+        }
 
     llm_called = {"count": 0}
 
@@ -623,21 +778,32 @@ def test_researcher_uses_wikipedia_evidence(
             "provider_request_id": "req-1",
             "provider_model": "test",
             "output": {"confidence": 0.9, "fields": {}, "evidence_urls": []},
-            "prompt_tokens": 100, "completion_tokens": 50, "estimated_cost_usd": 0.0,
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "estimated_cost_usd": 0.0,
         }
 
     monkeypatch.setenv("ATLAS_WEAVE_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr("recipes.satellite_enrichment.agents.collector.fetch_source_bundle", fake_fetch_source_bundle)
+    monkeypatch.setattr(
+        "recipes.satellite_enrichment.agents.collector.fetch_source_bundle",
+        fake_fetch_source_bundle,
+    )
     monkeypatch.setattr(HttpTool, "call", fake_http_with_wiki)
     monkeypatch.setattr(WebSearchTool, "call", lambda *a, **kw: {"results": []})
     monkeypatch.setattr(WebScrapeTool, "call", fake_scrape)
     monkeypatch.setattr(LLMTool, "has_credentials", lambda self, provider: True)
     monkeypatch.setattr(LLMTool, "call", spy_llm)
 
-    asyncio.run(run_recipe("satellite_enrichment", "sat-wiki-test", {
-        "enable_llm_research": True,
-        "skip_research_constellations": [],
-    }))
+    asyncio.run(
+        run_recipe(
+            "satellite_enrichment",
+            "sat-wiki-test",
+            {
+                "enable_llm_research": True,
+                "skip_research_constellations": [],
+            },
+        )
+    )
 
     satellites = db.fetch_satellites(db.run_db_path("sat-wiki-test"))
     starlink = next((s for s in satellites if s["norad_id"] == 44713), None)
@@ -653,6 +819,7 @@ def test_researcher_falls_back_to_web_search(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """When targeted sources all fail, researcher falls back to web search."""
+
     async def fake_fetch_source_bundle(_: Any) -> SourceBundle:
         bundle = build_source_bundle()
         bundle.celestrak_satcat = [bundle.celestrak_satcat[0]]
@@ -660,28 +827,52 @@ def test_researcher_falls_back_to_web_search(
         bundle.ucs = []
         return bundle
 
-    async def fake_http_404(self: HttpTool, ctx: Any, *, method: str, url: str, **kwargs: Any) -> HttpToolResponse:
+    async def fake_http_404(
+        self: HttpTool, ctx: Any, *, method: str, url: str, **kwargs: Any
+    ) -> HttpToolResponse:
         """All HTTP calls return empty/404."""
         return HttpToolResponse(
-            method="GET", url=url, final_url=url, status_code=200,
-            headers={}, content_type="application/json", body_bytes=50,
-            text=None, text_preview="",
+            method="GET",
+            url=url,
+            final_url=url,
+            status_code=200,
+            headers={},
+            content_type="application/json",
+            body_bytes=50,
+            text=None,
+            text_preview="",
             json_body={"query": {"search": []}},
         )
 
-    async def fake_scrape_404(self: WebScrapeTool, ctx: Any, *, url: str, max_chars: int = 2000, max_links: int = 6) -> dict[str, Any]:
+    async def fake_scrape_404(
+        self: WebScrapeTool,
+        ctx: Any,
+        *,
+        url: str,
+        max_chars: int = 2000,
+        max_links: int = 6,
+    ) -> dict[str, Any]:
         if "skyrocket.de" in url or "n2yo.com" in url:
             raise Exception("404 Not Found")
         return {
-            "url": url, "title": "Fallback Page", "links": [], "link_count": 0,
+            "url": url,
+            "title": "Fallback Page",
+            "links": [],
+            "link_count": 0,
             "text": "SpaceX operates Starlink for broadband internet communications.",
         }
 
-    async def fake_search(self: WebSearchTool, ctx: Any, *, query: str, max_results: int = 4) -> dict[str, Any]:
+    async def fake_search(
+        self: WebSearchTool, ctx: Any, *, query: str, max_results: int = 4
+    ) -> dict[str, Any]:
         return {
             "query": query,
             "results": [
-                {"title": "Starlink Info", "url": "https://example.com/fallback", "snippet": "Starlink info"}
+                {
+                    "title": "Starlink Info",
+                    "url": "https://example.com/fallback",
+                    "snippet": "Starlink info",
+                }
             ],
         }
 
@@ -691,24 +882,38 @@ def test_researcher_falls_back_to_web_search(
             "provider_model": "test",
             "output": {
                 "confidence": 0.85,
-                "fields": {"operator_name": "SpaceX", "purpose_primary": "Communications"},
+                "fields": {
+                    "operator_name": "SpaceX",
+                    "purpose_primary": "Communications",
+                },
                 "evidence_urls": ["https://example.com/fallback"],
             },
-            "prompt_tokens": 200, "completion_tokens": 80, "estimated_cost_usd": 0.0,
+            "prompt_tokens": 200,
+            "completion_tokens": 80,
+            "estimated_cost_usd": 0.0,
         }
 
     monkeypatch.setenv("ATLAS_WEAVE_DATA_DIR", str(tmp_path))
-    monkeypatch.setattr("recipes.satellite_enrichment.agents.collector.fetch_source_bundle", fake_fetch_source_bundle)
+    monkeypatch.setattr(
+        "recipes.satellite_enrichment.agents.collector.fetch_source_bundle",
+        fake_fetch_source_bundle,
+    )
     monkeypatch.setattr(HttpTool, "call", fake_http_404)
     monkeypatch.setattr(WebSearchTool, "call", fake_search)
     monkeypatch.setattr(WebScrapeTool, "call", fake_scrape_404)
     monkeypatch.setattr(LLMTool, "has_credentials", lambda self, provider: True)
     monkeypatch.setattr(LLMTool, "call", fake_llm)
 
-    asyncio.run(run_recipe("satellite_enrichment", "sat-fallback-test", {
-        "enable_llm_research": True,
-        "skip_research_constellations": [],
-    }))
+    asyncio.run(
+        run_recipe(
+            "satellite_enrichment",
+            "sat-fallback-test",
+            {
+                "enable_llm_research": True,
+                "skip_research_constellations": [],
+            },
+        )
+    )
 
     satellites = db.fetch_satellites(db.run_db_path("sat-fallback-test"))
     starlink = next((s for s in satellites if s["norad_id"] == 44713), None)
@@ -724,7 +929,12 @@ def test_celestrak_smoke_fetch_stations_group() -> None:
     from recipes.satellite_enrichment.sources import normalize_celestrak_row
 
     url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=json"
-    response = httpx.get(url, headers={"User-Agent": "AtlasWeave/0.1"}, timeout=45.0, follow_redirects=True)
+    response = httpx.get(
+        url,
+        headers={"User-Agent": "AtlasWeave/0.1"},
+        timeout=45.0,
+        follow_redirects=True,
+    )
     response.raise_for_status()
 
     body = response.json()
@@ -732,7 +942,9 @@ def test_celestrak_smoke_fetch_stations_group() -> None:
     assert len(body) > 0, "Expected non-empty list from CelesTrak stations group"
 
     first = body[0]
-    assert "NORAD_CAT_ID" in first, f"Missing NORAD_CAT_ID in record keys: {list(first.keys())[:10]}"
+    assert "NORAD_CAT_ID" in first, (
+        f"Missing NORAD_CAT_ID in record keys: {list(first.keys())[:10]}"
+    )
 
     normalized = normalize_celestrak_row(first, "stations")
     assert normalized["norad_id"] is not None
@@ -740,13 +952,17 @@ def test_celestrak_smoke_fetch_stations_group() -> None:
 
 
 @pytest.mark.external
-def test_satellite_enrichment_external_live_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_satellite_enrichment_external_live_run(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     required = [
         "DISCOS_API_TOKEN",
     ]
     missing = [name for name in required if not os.getenv(name)]
     if missing:
-        pytest.skip(f"missing live satellite enrichment credentials: {', '.join(missing)}")
+        pytest.skip(
+            f"missing live satellite enrichment credentials: {', '.join(missing)}"
+        )
 
     monkeypatch.setenv("ATLAS_WEAVE_DATA_DIR", str(tmp_path))
     asyncio.run(
@@ -771,12 +987,14 @@ def test_satellite_enrichment_external_live_run(monkeypatch: pytest.MonkeyPatch,
 
 def test_ucs_country_extraction_ignores_operator_name() -> None:
     """Verify 'SpaceX' is NOT used as country input — only 'Country of Operator/Owner' and 'Country' columns."""
-    row = normalize_ucs_row({
-        "NORAD Number": "44713",
-        "Operator/Owner": "SpaceX",
-        "Country of Operator/Owner": "USA",
-        "Country": "USA",
-    })
+    row = normalize_ucs_row(
+        {
+            "NORAD Number": "44713",
+            "Operator/Owner": "SpaceX",
+            "Country of Operator/Owner": "USA",
+            "Country": "USA",
+        }
+    )
     assert row["operator_country_code"] == "US"
     assert row["operator_country_name"] == "United States"
     assert row["owner_country_code"] == "US"
@@ -785,33 +1003,39 @@ def test_ucs_country_extraction_ignores_operator_name() -> None:
 
 def test_ucs_country_extraction_does_not_pick_operator_name_as_country() -> None:
     """When only Operator/Owner is present (no country columns), country should be None."""
-    row = normalize_ucs_row({
-        "NORAD Number": "44713",
-        "Operator/Owner": "SpaceX",
-    })
+    row = normalize_ucs_row(
+        {
+            "NORAD Number": "44713",
+            "Operator/Owner": "SpaceX",
+        }
+    )
     # "SpaceX" should NOT be used as a country — normalize_country("SpaceX") returns (None, "Spacex")
     assert row["operator_country_code"] is None
 
 
 def test_space_track_satcat_normalizer_does_not_use_launch_piece() -> None:
     """LAUNCH_PIECE is the fragment designator, not the vehicle name."""
-    row = normalize_space_track_satcat_row({
-        "NORAD_CAT_ID": "25544",
-        "OBJECT_NAME": "ISS (ZARYA)",
-        "LAUNCH_PIECE": "A",
-        "COUNTRY": "US",
-    })
+    row = normalize_space_track_satcat_row(
+        {
+            "NORAD_CAT_ID": "25544",
+            "OBJECT_NAME": "ISS (ZARYA)",
+            "LAUNCH_PIECE": "A",
+            "COUNTRY": "US",
+        }
+    )
     # Should NOT pick "A" as the launch vehicle
     assert row["launch_vehicle"] is None
 
 
 def test_space_track_satcat_normalizer_outputs_launch_site_country_code() -> None:
     """Merger expects launch_site_country_code, not country_code."""
-    row = normalize_space_track_satcat_row({
-        "NORAD_CAT_ID": "25544",
-        "OBJECT_NAME": "ISS (ZARYA)",
-        "COUNTRY": "US",
-    })
+    row = normalize_space_track_satcat_row(
+        {
+            "NORAD_CAT_ID": "25544",
+            "OBJECT_NAME": "ISS (ZARYA)",
+            "COUNTRY": "US",
+        }
+    )
     assert "launch_site_country_code" in row
     assert row["launch_site_country_code"] == "US"
     assert "country_code" not in row
@@ -831,7 +1055,10 @@ def test_object_type_derivation_from_name() -> None:
     """object_type should be derived from object_name patterns when missing."""
     from recipes.satellite_enrichment.agents.merger import _finalize_derived_fields
 
-    debris_record: dict[str, Any] = {"object_name": "STARLINK-1001 DEB", "object_type": None}
+    debris_record: dict[str, Any] = {
+        "object_name": "STARLINK-1001 DEB",
+        "object_type": None,
+    }
     _finalize_derived_fields(debris_record)
     assert debris_record["object_type"] == "DEBRIS"
     assert debris_record["is_debris"] is True
@@ -840,7 +1067,10 @@ def test_object_type_derivation_from_name() -> None:
     _finalize_derived_fields(rb_record)
     assert rb_record["object_type"] == "ROCKET BODY"
 
-    payload_record: dict[str, Any] = {"object_name": "STARLINK-1001", "object_type": None}
+    payload_record: dict[str, Any] = {
+        "object_name": "STARLINK-1001",
+        "object_type": None,
+    }
     _finalize_derived_fields(payload_record)
     assert payload_record["object_type"] == "PAYLOAD"
 

@@ -39,16 +39,28 @@ def test_run_recipe_success_emits_completion_summary(capsys) -> None:
     asyncio.run(run_recipe("test_pipeline", "run-success", {"fail_b": False}))
     events = [line for line in capsys.readouterr().out.splitlines() if line]
 
-    assert any('"type":"node_completed"' in event and '"node_id":"validate_agent"' in event for event in events)
-    assert any('"type":"run_completed"' in event and '"completed_nodes":3' in event for event in events)
+    assert any(
+        '"type":"node_completed"' in event and '"node_id":"validate_agent"' in event
+        for event in events
+    )
+    assert any(
+        '"type":"run_completed"' in event and '"completed_nodes":3' in event
+        for event in events
+    )
 
 
 def test_run_recipe_failure_skips_downstream_nodes(capsys) -> None:
     asyncio.run(run_recipe("test_pipeline", "run-failure", {"fail_b": True}))
     events = [line for line in capsys.readouterr().out.splitlines() if line]
 
-    assert any('"type":"node_failed"' in event and '"node_id":"transform_agent"' in event for event in events)
-    assert any('"type":"node_skipped"' in event and '"node_id":"validate_agent"' in event for event in events)
+    assert any(
+        '"type":"node_failed"' in event and '"node_id":"transform_agent"' in event
+        for event in events
+    )
+    assert any(
+        '"type":"node_skipped"' in event and '"node_id":"validate_agent"' in event
+        for event in events
+    )
     assert any('"type":"run_failed"' in event for event in events)
 
 
@@ -64,7 +76,9 @@ def test_describe_recipe_returns_real_metadata() -> None:
 
 
 def test_run_recipe_protocol_cancel_emits_cancel_events(capsys, monkeypatch) -> None:
-    stdin_lines = iter([json.dumps({"type": "cancel_run", "run_id": "run-cancel"}) + "\n", ""])
+    stdin_lines = iter(
+        [json.dumps({"type": "cancel_run", "run_id": "run-cancel"}) + "\n", ""]
+    )
     monkeypatch.setattr("sys.stdin.readline", lambda: next(stdin_lines))
 
     async def run() -> None:

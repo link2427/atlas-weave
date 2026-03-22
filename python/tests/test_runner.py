@@ -11,31 +11,40 @@ from atlas_weave.runner import RunMetrics, _collect_descendants, run_recipe
 
 # -- Four-node recipe: A → B → C, A → B → D ----------------------------------
 
+
 class AgentA(Agent):
     name = "a"
     description = "root"
+
     async def execute(self, ctx: AgentContext) -> AgentResult:
         return AgentResult(records_processed=1, summary={"ok": True})
+
 
 class AgentB(Agent):
     name = "b"
     description = "middle (fails if configured)"
+
     async def execute(self, ctx: AgentContext) -> AgentResult:
         if ctx.config.get("fail_b"):
             raise RuntimeError("forced failure")
         return AgentResult(records_processed=1, summary={"ok": True})
 
+
 class AgentC(Agent):
     name = "c"
     description = "leaf 1"
+
     async def execute(self, ctx: AgentContext) -> AgentResult:
         return AgentResult(records_processed=1, summary={"ok": True})
+
 
 class AgentD(Agent):
     name = "d"
     description = "leaf 2"
+
     async def execute(self, ctx: AgentContext) -> AgentResult:
         return AgentResult(records_processed=1, summary={"ok": True})
+
 
 class FourNodeRecipe(Recipe):
     name = "four_node"
@@ -45,16 +54,19 @@ class FourNodeRecipe(Recipe):
     edges = [("a", "b"), ("b", "c"), ("b", "d")]
     config_schema: dict[str, Any] = {"fail_b": {"type": "boolean", "default": False}}
 
+
 RECIPE = FourNodeRecipe()
 
 
 # -- Helpers -------------------------------------------------------------------
+
 
 def _parse_events(capsys) -> list[dict[str, Any]]:
     return [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
 
 
 # -- Tests ---------------------------------------------------------------------
+
 
 def test_resume_state_skips_completed_nodes(capsys, monkeypatch) -> None:
     monkeypatch.setattr("atlas_weave.runner._load_recipe", lambda name: RECIPE)
@@ -78,7 +90,9 @@ def test_resume_state_ignores_unknown_nodes(capsys, monkeypatch) -> None:
     monkeypatch.setattr("atlas_weave.runner._load_recipe", lambda name: RECIPE)
 
     asyncio.run(
-        run_recipe("four_node", "run-unknown", {}, resume_state={"nonexistent": "completed"})
+        run_recipe(
+            "four_node", "run-unknown", {}, resume_state={"nonexistent": "completed"}
+        )
     )
     events = _parse_events(capsys)
 
@@ -131,8 +145,22 @@ def test_run_metrics_records_events() -> None:
     metrics.record({"type": "tool_call", "tool": "http"})
     metrics.record({"type": "tool_call", "tool": "http"})
     metrics.record({"type": "llm_call", "provider": "openrouter"})
-    metrics.record({"type": "llm_result", "prompt_tokens": 100, "completion_tokens": 50, "estimated_cost_usd": 0.005})
-    metrics.record({"type": "llm_result", "prompt_tokens": 200, "completion_tokens": 30, "estimated_cost_usd": 0.003})
+    metrics.record(
+        {
+            "type": "llm_result",
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "estimated_cost_usd": 0.005,
+        }
+    )
+    metrics.record(
+        {
+            "type": "llm_result",
+            "prompt_tokens": 200,
+            "completion_tokens": 30,
+            "estimated_cost_usd": 0.003,
+        }
+    )
 
     s = metrics.summary()
     assert s["tool_calls"] == 2

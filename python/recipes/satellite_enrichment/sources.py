@@ -111,33 +111,69 @@ async def fetch_source_bundle(ctx: AgentContext) -> SourceBundle:
     logger.info("Fetching CelesTrak...")
     ctx.emit.progress(ctx.node_id, 0.06, "Fetching CelesTrak categories")
     celestrak_rows, celestrak_status, snapshot = await _fetch_celestrak(ctx)
-    logger.info("CelesTrak: status=%s, records=%d", celestrak_status, len(celestrak_rows))
-    _record_snapshot_state("celestrak", celestrak_status, snapshot, cached_sources, stale_sources, source_snapshots)
+    logger.info(
+        "CelesTrak: status=%s, records=%d", celestrak_status, len(celestrak_rows)
+    )
+    _record_snapshot_state(
+        "celestrak",
+        celestrak_status,
+        snapshot,
+        cached_sources,
+        stale_sources,
+        source_snapshots,
+    )
 
     logger.info("Fetching DISCOS...")
     ctx.emit.progress(ctx.node_id, 0.38, "Fetching ESA DISCOS objects")
     discos_rows, discos_status, snapshot = await _fetch_discos(ctx)
     logger.info("DISCOS: status=%s, records=%d", discos_status, len(discos_rows))
-    _record_snapshot_state("discos", discos_status, snapshot, cached_sources, stale_sources, source_snapshots)
+    _record_snapshot_state(
+        "discos",
+        discos_status,
+        snapshot,
+        cached_sources,
+        stale_sources,
+        source_snapshots,
+    )
 
     logger.info("Fetching UCS...")
     ctx.emit.progress(ctx.node_id, 0.58, "Loading UCS catalog")
     ucs_rows, ucs_status, snapshot = await _fetch_ucs(ctx)
     logger.info("UCS: status=%s, records=%d", ucs_status, len(ucs_rows))
-    _record_snapshot_state("ucs", ucs_status, snapshot, cached_sources, stale_sources, source_snapshots)
+    _record_snapshot_state(
+        "ucs", ucs_status, snapshot, cached_sources, stale_sources, source_snapshots
+    )
 
     logger.info("Fetching Space-Track...")
     ctx.emit.progress(ctx.node_id, 0.78, "Resolving optional Space-Track data")
     satcat_rows, gp_rows, space_track_status, snapshot = await _fetch_space_track(ctx)
-    logger.info("Space-Track: status=%s, satcat=%d, gp=%d", space_track_status, len(satcat_rows), len(gp_rows))
-    _record_snapshot_state("space_track", space_track_status, snapshot, cached_sources, stale_sources, source_snapshots)
+    logger.info(
+        "Space-Track: status=%s, satcat=%d, gp=%d",
+        space_track_status,
+        len(satcat_rows),
+        len(gp_rows),
+    )
+    _record_snapshot_state(
+        "space_track",
+        space_track_status,
+        snapshot,
+        cached_sources,
+        stale_sources,
+        source_snapshots,
+    )
 
     if not any((celestrak_rows, discos_rows, ucs_rows, satcat_rows)):
-        raise ValueError("No structured source data was collected. Configure CelesTrak access, UCS input, or DISCOS credentials.")
+        raise ValueError(
+            "No structured source data was collected. Configure CelesTrak access, UCS input, or DISCOS credentials."
+        )
 
     logger.info(
         "Source collection complete: celestrak=%d, discos=%d, ucs=%d, space_track_satcat=%d, space_track_gp=%d",
-        len(celestrak_rows), len(discos_rows), len(ucs_rows), len(satcat_rows), len(gp_rows),
+        len(celestrak_rows),
+        len(discos_rows),
+        len(ucs_rows),
+        len(satcat_rows),
+        len(gp_rows),
     )
     ctx.emit.progress(ctx.node_id, 0.94, "Structured source collection complete")
     return SourceBundle(
@@ -161,11 +197,17 @@ async def fetch_source_bundle(ctx: AgentContext) -> SourceBundle:
 async def _fetch_space_track(
     ctx: AgentContext,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str, dict[str, Any] | None]:
-    mode = str(ctx.config.get("space_track_mode", "prefer_cache") or "prefer_cache").strip().lower()
+    mode = (
+        str(ctx.config.get("space_track_mode", "prefer_cache") or "prefer_cache")
+        .strip()
+        .lower()
+    )
     if mode not in {"disabled", "prefer_cache", "live"}:
         mode = "prefer_cache"
 
-    fresh_snapshot = _load_snapshot("space_track", SOURCE_CACHE_TTL_MINUTES["space_track"])
+    fresh_snapshot = _load_snapshot(
+        "space_track", SOURCE_CACHE_TTL_MINUTES["space_track"]
+    )
     stale_snapshot = fresh_snapshot or _load_snapshot("space_track", None)
 
     if mode == "disabled":
@@ -177,7 +219,9 @@ async def _fetch_space_track(
                 list(stale_snapshot["payload"].get("satcat_rows", [])),
                 list(stale_snapshot["payload"].get("gp_rows", [])),
                 "cached" if fresh_snapshot else "stale_cache",
-                _snapshot_metadata(stale_snapshot, "cached" if fresh_snapshot else "stale_cache"),
+                _snapshot_metadata(
+                    stale_snapshot, "cached" if fresh_snapshot else "stale_cache"
+                ),
             )
         # No cache — fall through to live fetch if credentials exist
 
@@ -185,14 +229,22 @@ async def _fetch_space_track(
     password = os.getenv("SPACE_TRACK_PASSWORD")
     if not identity or not password:
         if stale_snapshot:
-            ctx.emit.log(ctx.node_id, "warning", "Space-Track live mode requested without credentials; using cached snapshot instead.")
+            ctx.emit.log(
+                ctx.node_id,
+                "warning",
+                "Space-Track live mode requested without credentials; using cached snapshot instead.",
+            )
             return (
                 list(stale_snapshot["payload"].get("satcat_rows", [])),
                 list(stale_snapshot["payload"].get("gp_rows", [])),
                 "stale_cache",
                 _snapshot_metadata(stale_snapshot, "stale_cache"),
             )
-        ctx.emit.log(ctx.node_id, "warning", "Space-Track live mode requested without credentials; skipping Space-Track.")
+        ctx.emit.log(
+            ctx.node_id,
+            "warning",
+            "Space-Track live mode requested without credentials; skipping Space-Track.",
+        )
         return ([], [], "skipped", None)
 
     login_url = "https://www.space-track.org/ajaxauth/login"
@@ -207,7 +259,9 @@ async def _fetch_space_track(
             login_response.raise_for_status()
 
             satcat_response = await _retry_request(
-                lambda: client.get(satcat_url, headers={"User-Agent": "AtlasWeave/0.1"}),
+                lambda: client.get(
+                    satcat_url, headers={"User-Agent": "AtlasWeave/0.1"}
+                ),
                 attempts=SPACE_TRACK_RETRY_ATTEMPTS,
                 on_retry=lambda attempt, delay_s, status_code: ctx.emit.log(
                     ctx.node_id,
@@ -219,17 +273,27 @@ async def _fetch_space_track(
                 ),
             )
             satcat_response.raise_for_status()
-            satcat_payload = _parse_space_track_payload(satcat_response.json(), "SATCAT")
-            satcat_rows = [normalize_space_track_satcat_row(item) for item in satcat_payload]
-            satcat_rows = [row for row in satcat_rows if row.get("norad_id") is not None]
+            satcat_payload = _parse_space_track_payload(
+                satcat_response.json(), "SATCAT"
+            )
+            satcat_rows = [
+                normalize_space_track_satcat_row(item) for item in satcat_payload
+            ]
+            satcat_rows = [
+                row for row in satcat_rows if row.get("norad_id") is not None
+            ]
             if not satcat_rows:
-                raise ValueError("Space-Track SATCAT response did not contain any valid satellite records")
+                raise ValueError(
+                    "Space-Track SATCAT response did not contain any valid satellite records"
+                )
 
             record_limit = _safe_int(ctx.config.get("record_limit"))
             if record_limit:
                 satcat_rows = satcat_rows[:record_limit]
 
-            norad_ids = [str(row["norad_id"]) for row in satcat_rows if row.get("norad_id")]
+            norad_ids = [
+                str(row["norad_id"]) for row in satcat_rows if row.get("norad_id")
+            ]
             gp_rows: list[dict[str, Any]] = []
             batches = _batched(norad_ids, SPACE_TRACK_GP_BATCH_SIZE)
             for index, batch in enumerate(batches, start=1):
@@ -237,7 +301,9 @@ async def _fetch_space_track(
                 if index > 1:
                     await asyncio.sleep(SPACE_TRACK_GP_DELAY_S)
                 gp_payload = await _fetch_space_track_gp_batch(ctx, client, batch)
-                gp_rows.extend(normalize_space_track_gp_row(item) for item in gp_payload)
+                gp_rows.extend(
+                    normalize_space_track_gp_row(item) for item in gp_payload
+                )
                 ctx.emit.progress(
                     ctx.node_id,
                     min(0.92, 0.78 + (index / max(1, len(batches))) * 0.12),
@@ -245,14 +311,22 @@ async def _fetch_space_track(
                 )
     except Exception as error:  # noqa: BLE001
         if stale_snapshot:
-            ctx.emit.log(ctx.node_id, "warning", f"Space-Track live fetch failed; using cached snapshot instead: {error}")
+            ctx.emit.log(
+                ctx.node_id,
+                "warning",
+                f"Space-Track live fetch failed; using cached snapshot instead: {error}",
+            )
             return (
                 list(stale_snapshot["payload"].get("satcat_rows", [])),
                 list(stale_snapshot["payload"].get("gp_rows", [])),
                 "stale_cache",
                 _snapshot_metadata(stale_snapshot, "stale_cache"),
             )
-        ctx.emit.log(ctx.node_id, "warning", f"Space-Track fetch failed and no cache is available: {error}")
+        ctx.emit.log(
+            ctx.node_id,
+            "warning",
+            f"Space-Track fetch failed and no cache is available: {error}",
+        )
         return ([], [], "failed", None)
 
     snapshot = _write_snapshot(
@@ -312,9 +386,15 @@ async def _fetch_space_track_gp_batch(
 async def _fetch_celestrak(
     ctx: AgentContext,
 ) -> tuple[list[dict[str, Any]], str, dict[str, Any] | None]:
-    ttl_minutes = max(1, _safe_int(ctx.config.get("celestrak_cache_ttl_minutes")) or SOURCE_CACHE_TTL_MINUTES["celestrak"])
+    ttl_minutes = max(
+        1,
+        _safe_int(ctx.config.get("celestrak_cache_ttl_minutes"))
+        or SOURCE_CACHE_TTL_MINUTES["celestrak"],
+    )
     refresh_sources = bool(ctx.config.get("refresh_sources", False))
-    fresh_snapshot = None if refresh_sources else _load_snapshot("celestrak", ttl_minutes)
+    fresh_snapshot = (
+        None if refresh_sources else _load_snapshot("celestrak", ttl_minutes)
+    )
     if fresh_snapshot:
         rows = [dict(row) for row in fresh_snapshot["payload"].get("rows", [])]
         return (rows, "cached", _snapshot_metadata(fresh_snapshot, "cached"))
@@ -328,23 +408,46 @@ async def _fetch_celestrak(
         nonlocal completed_count
         async with semaphore:
             ctx.raise_if_cancelled()
-            url = f"https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=json"
+            url = (
+                f"https://celestrak.org/NORAD/elements/gp.php?GROUP={group}&FORMAT=json"
+            )
             try:
-                response = await ctx.tools.http.call(ctx, method="GET", url=url, headers={"User-Agent": "AtlasWeave/0.1"}, timeout_s=45.0)
+                response = await ctx.tools.http.call(
+                    ctx,
+                    method="GET",
+                    url=url,
+                    headers={"User-Agent": "AtlasWeave/0.1"},
+                    timeout_s=45.0,
+                )
                 if response.json_body is None:
                     logger.warning(
                         "CelesTrak group %s: json_body is None (content-type: %s, body: %d bytes)",
-                        group, response.content_type, response.body_bytes,
+                        group,
+                        response.content_type,
+                        response.body_bytes,
                     )
-                    ctx.emit.log(ctx.node_id, "warning",
-                        f"CelesTrak group {group}: json_body is None (content-type: {response.content_type}, body: {response.body_bytes} bytes)")
-                payload = response.json_body if isinstance(response.json_body, list) else []
-                logger.debug("CelesTrak group %s: HTTP %d, content-type=%s, records=%d", group, response.status_code, response.content_type, len(payload))
+                    ctx.emit.log(
+                        ctx.node_id,
+                        "warning",
+                        f"CelesTrak group {group}: json_body is None (content-type: {response.content_type}, body: {response.body_bytes} bytes)",
+                    )
+                payload = (
+                    response.json_body if isinstance(response.json_body, list) else []
+                )
+                logger.debug(
+                    "CelesTrak group %s: HTTP %d, content-type=%s, records=%d",
+                    group,
+                    response.status_code,
+                    response.content_type,
+                    len(payload),
+                )
                 group_rows = [normalize_celestrak_row(item, group) for item in payload]
                 return (group, group_rows, None)
             except Exception as error:  # noqa: BLE001
                 logger.warning("CelesTrak group %s failed: %s", group, error)
-                ctx.emit.log(ctx.node_id, "warning", f"CelesTrak group {group} failed: {error}")
+                ctx.emit.log(
+                    ctx.node_id, "warning", f"CelesTrak group {group} failed: {error}"
+                )
                 return (group, [], str(error))
             finally:
                 completed_count += 1
@@ -388,7 +491,11 @@ async def _fetch_celestrak(
         return (rows, status, _snapshot_metadata(snapshot, status))
 
     if stale_snapshot:
-        ctx.emit.log(ctx.node_id, "warning", "CelesTrak live fetch failed; using cached snapshot instead.")
+        ctx.emit.log(
+            ctx.node_id,
+            "warning",
+            "CelesTrak live fetch failed; using cached snapshot instead.",
+        )
         return (
             [dict(row) for row in stale_snapshot["payload"].get("rows", [])],
             "stale_cache",
@@ -402,7 +509,9 @@ async def _fetch_celestrak_tles(ctx: AgentContext) -> dict[int, tuple[str, str]]
     url = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle"
     try:
         response = await ctx.tools.http.call(
-            ctx, method="GET", url=url,
+            ctx,
+            method="GET",
+            url=url,
             headers={"User-Agent": "AtlasWeave/0.1"},
             timeout_s=60.0,
         )
@@ -442,7 +551,11 @@ async def _fetch_discos(
     ctx: AgentContext,
 ) -> tuple[list[dict[str, Any]], str, dict[str, Any] | None]:
     refresh_sources = bool(ctx.config.get("refresh_sources", False))
-    fresh_snapshot = None if refresh_sources else _load_snapshot("discos", SOURCE_CACHE_TTL_MINUTES["discos"])
+    fresh_snapshot = (
+        None
+        if refresh_sources
+        else _load_snapshot("discos", SOURCE_CACHE_TTL_MINUTES["discos"])
+    )
     if fresh_snapshot:
         return (
             [dict(row) for row in fresh_snapshot["payload"].get("rows", [])],
@@ -454,7 +567,11 @@ async def _fetch_discos(
     stale_snapshot = _load_snapshot("discos", None)
     if not token:
         if stale_snapshot:
-            ctx.emit.log(ctx.node_id, "warning", "DISCOS token is missing; using cached DISCOS snapshot.")
+            ctx.emit.log(
+                ctx.node_id,
+                "warning",
+                "DISCOS token is missing; using cached DISCOS snapshot.",
+            )
             return (
                 [dict(row) for row in stale_snapshot["payload"].get("rows", [])],
                 "stale_cache",
@@ -492,7 +609,11 @@ async def _fetch_discos(
                 break
     except Exception as error:  # noqa: BLE001
         if stale_snapshot:
-            ctx.emit.log(ctx.node_id, "warning", f"DISCOS live fetch failed; using cached snapshot instead: {error}")
+            ctx.emit.log(
+                ctx.node_id,
+                "warning",
+                f"DISCOS live fetch failed; using cached snapshot instead: {error}",
+            )
             return (
                 [dict(row) for row in stale_snapshot["payload"].get("rows", [])],
                 "stale_cache",
@@ -541,7 +662,11 @@ async def _fetch_ucs(
 
     if csv_url:
         refresh_sources = bool(ctx.config.get("refresh_sources", False))
-        fresh_snapshot = None if refresh_sources else _load_snapshot("ucs_url", SOURCE_CACHE_TTL_MINUTES["ucs_url"])
+        fresh_snapshot = (
+            None
+            if refresh_sources
+            else _load_snapshot("ucs_url", SOURCE_CACHE_TTL_MINUTES["ucs_url"])
+        )
         if fresh_snapshot:
             return (
                 [dict(row) for row in fresh_snapshot["payload"].get("rows", [])],
@@ -550,7 +675,9 @@ async def _fetch_ucs(
             )
         stale_snapshot = _load_snapshot("ucs_url", None)
         try:
-            response = await ctx.tools.http.call(ctx, method="GET", url=csv_url, headers={"User-Agent": "AtlasWeave/0.1"})
+            response = await ctx.tools.http.call(
+                ctx, method="GET", url=csv_url, headers={"User-Agent": "AtlasWeave/0.1"}
+            )
             rows = _parse_ucs_csv(_decode_csv_http_response(response))
             snapshot = _write_snapshot(
                 "ucs_url",
@@ -559,10 +686,18 @@ async def _fetch_ucs(
                 source_url=csv_url,
                 record_count=len(rows),
             )
-            return (rows, "live", _snapshot_metadata(snapshot, "live", source_key="ucs"))
+            return (
+                rows,
+                "live",
+                _snapshot_metadata(snapshot, "live", source_key="ucs"),
+            )
         except Exception as error:  # noqa: BLE001
             if stale_snapshot:
-                ctx.emit.log(ctx.node_id, "warning", f"UCS URL fetch failed; using cached snapshot instead: {error}")
+                ctx.emit.log(
+                    ctx.node_id,
+                    "warning",
+                    f"UCS URL fetch failed; using cached snapshot instead: {error}",
+                )
                 return (
                     [dict(row) for row in stale_snapshot["payload"].get("rows", [])],
                     "stale_cache",
@@ -571,12 +706,18 @@ async def _fetch_ucs(
             ctx.emit.log(ctx.node_id, "warning", f"UCS URL fetch failed: {error}")
             return ([], "failed", None)
 
-    ctx.emit.log(ctx.node_id, "warning", "No UCS CSV path or URL configured; skipping UCS source.")
+    ctx.emit.log(
+        ctx.node_id,
+        "warning",
+        "No UCS CSV path or URL configured; skipping UCS source.",
+    )
     return ([], "skipped", None)
 
 
 def normalize_space_track_satcat_row(item: dict[str, Any]) -> dict[str, Any]:
-    country_code, country_name = normalize_country(_pick(item, "COUNTRY", "COUNTRY_CODE", "COUNTRY_NAME"))
+    country_code, country_name = normalize_country(
+        _pick(item, "COUNTRY", "COUNTRY_CODE", "COUNTRY_NAME")
+    )
     launch_date = _pick(item, "LAUNCH", "LAUNCH_DATE")
     return {
         "norad_id": _safe_int(_pick(item, "NORAD_CAT_ID", "NORAD")),
@@ -603,7 +744,9 @@ def normalize_space_track_gp_row(item: dict[str, Any]) -> dict[str, Any]:
 def normalize_celestrak_row(item: dict[str, Any], group: str) -> dict[str, Any]:
     row = _normalize_orbit_payload(item, {"group_name": group})
     row["object_name"] = _pick(item, "OBJECT_NAME", "OBJECT") or row.get("object_name")
-    row["international_designator"] = _pick(item, "OBJECT_ID", "INTLDES", "INTL_DES") or row.get("international_designator")
+    row["international_designator"] = _pick(
+        item, "OBJECT_ID", "INTLDES", "INTL_DES"
+    ) or row.get("international_designator")
     row["raw"] = item
     return row
 
@@ -614,7 +757,9 @@ def normalize_discos_row(item: dict[str, Any]) -> dict[str, Any]:
     mission = attributes.get("mission", {}) if isinstance(attributes, dict) else {}
 
     operator_country_code, operator_country_name = normalize_country(
-        _pick(attributes, "operatorCountry", "operatorCountryCode", "operatorCountryName")
+        _pick(
+            attributes, "operatorCountry", "operatorCountryCode", "operatorCountryName"
+        )
     )
     owner_country_code, owner_country_name = normalize_country(
         _pick(attributes, "ownerCountry", "ownerCountryCode", "ownerCountryName")
@@ -625,7 +770,9 @@ def normalize_discos_row(item: dict[str, Any]) -> dict[str, Any]:
             _pick(attributes, "satno", "noradId", "noradNumber")
             or _pick(item, "satno", "noradId")
         ),
-        "international_designator": _pick(attributes, "cosparId", "cosparID", "intlDes"),
+        "international_designator": _pick(
+            attributes, "cosparId", "cosparID", "intlDes"
+        ),
         "object_name": _pick(attributes, "name", "objectName"),
         "object_type": _pick(attributes, "objectClass"),
         "operator_name": _pick(attributes, "operatorName", "operator"),
@@ -659,8 +806,14 @@ def normalize_ucs_row(item: dict[str, Any]) -> dict[str, Any]:
     )
     return {
         "norad_id": _safe_int(_pick(item, "NORAD Number", "NORAD_CAT_ID")),
-        "international_designator": _pick(item, "COSPAR Number", "International Designator", "COSPAR", "Intl. Des."),
-        "object_name": _pick(item, "Current Official Name of Satellite", "Name of Satellite, Alternate Names"),
+        "international_designator": _pick(
+            item, "COSPAR Number", "International Designator", "COSPAR", "Intl. Des."
+        ),
+        "object_name": _pick(
+            item,
+            "Current Official Name of Satellite",
+            "Name of Satellite, Alternate Names",
+        ),
         "operator_name": _pick(item, "Operator/Owner"),
         "operator_country_code": operator_country_code,
         "operator_country_name": operator_country_name,
@@ -709,7 +862,9 @@ async def _retry_request(
     raise RuntimeError("request retry loop failed without an error")
 
 
-def _retry_delay_s(response: httpx.Response, attempt: int, base_delay_s: float) -> float:
+def _retry_delay_s(
+    response: httpx.Response, attempt: int, base_delay_s: float
+) -> float:
     retry_after = response.headers.get("Retry-After")
     if retry_after:
         try:
@@ -723,11 +878,17 @@ def _parse_space_track_payload(payload: Any, label: str) -> list[dict[str, Any]]
     if isinstance(payload, dict):
         error_message = _space_track_error_message(payload)
         if error_message:
-            raise ValueError(f"Space-Track {label} request returned an API error: {error_message}")
-        raise ValueError(f"Space-Track {label} request returned an unexpected object payload")
+            raise ValueError(
+                f"Space-Track {label} request returned an API error: {error_message}"
+            )
+        raise ValueError(
+            f"Space-Track {label} request returned an unexpected object payload"
+        )
 
     if not isinstance(payload, list):
-        raise ValueError(f"Space-Track {label} request returned an unexpected payload type")
+        raise ValueError(
+            f"Space-Track {label} request returned an unexpected payload type"
+        )
 
     rows: list[dict[str, Any]] = []
     for item in payload:
@@ -735,7 +896,9 @@ def _parse_space_track_payload(payload: Any, label: str) -> list[dict[str, Any]]
             continue
         error_message = _space_track_error_message(item)
         if error_message:
-            raise ValueError(f"Space-Track {label} request returned an API error: {error_message}")
+            raise ValueError(
+                f"Space-Track {label} request returned an API error: {error_message}"
+            )
         rows.append(item)
     return rows
 
@@ -745,7 +908,11 @@ def _space_track_error_message(payload: dict[str, Any]) -> str | None:
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             lowered = value.lower()
-            if "space-track" in lowered or "query rate limit" in lowered or "acceptable use" in lowered:
+            if (
+                "space-track" in lowered
+                or "query rate limit" in lowered
+                or "acceptable use" in lowered
+            ):
                 return value.strip()
     return None
 
@@ -755,7 +922,9 @@ def _parse_ucs_csv(text: str) -> list[dict[str, Any]]:
     reader = csv.DictReader(StringIO(text))
     for row in reader:
         normalized = normalize_ucs_row(dict(row))
-        if normalized.get("norad_id") is None and not normalized.get("international_designator"):
+        if normalized.get("norad_id") is None and not normalized.get(
+            "international_designator"
+        ):
             continue
         rows.append(normalized)
     return rows
@@ -784,7 +953,9 @@ def _decode_csv_http_response(response: httpx.Response) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
-def _normalize_orbit_payload(item: dict[str, Any], extra: dict[str, Any]) -> dict[str, Any]:
+def _normalize_orbit_payload(
+    item: dict[str, Any], extra: dict[str, Any]
+) -> dict[str, Any]:
     mean_motion = _safe_float(_pick(item, "MEAN_MOTION"))
     period_min = round(1440.0 / mean_motion, 4) if mean_motion else None
     semi_major_axis = _semi_major_axis_km(mean_motion)
@@ -813,7 +984,9 @@ def _normalize_orbit_payload(item: dict[str, Any], extra: dict[str, Any]) -> dic
         "apogee_km": apogee,
         "altitude_km": altitude,
         "raan_deg": _safe_float(_pick(item, "RA_OF_ASC_NODE", "RAAN")),
-        "arg_perigee_deg": _safe_float(_pick(item, "ARG_OF_PERICENTER", "ARG_OF_PERIGEE")),
+        "arg_perigee_deg": _safe_float(
+            _pick(item, "ARG_OF_PERICENTER", "ARG_OF_PERIGEE")
+        ),
         "mean_anomaly_deg": _safe_float(_pick(item, "MEAN_ANOMALY")),
         "tle_line1": _pick(item, "TLE_LINE1", "LINE1"),
         "tle_line2": _pick(item, "TLE_LINE2", "LINE2"),
@@ -864,7 +1037,7 @@ def _semi_major_axis_km(mean_motion_rev_per_day: float | None) -> float | None:
         return None
     mu = 398600.4418
     mean_motion_rad_s = mean_motion_rev_per_day * (2 * 3.141592653589793) / 86400
-    return round((mu / (mean_motion_rad_s ** 2)) ** (1 / 3), 3)
+    return round((mu / (mean_motion_rad_s**2)) ** (1 / 3), 3)
 
 
 def stage_rows(
@@ -882,7 +1055,9 @@ def stage_rows(
                 "run_id": run_id,
                 "norad_id": item.get("norad_id"),
                 "source_key": source_key,
-                "label": item.get("object_name") or item.get("group_name") or source_key,
+                "label": item.get("object_name")
+                or item.get("group_name")
+                or source_key,
                 "status": status,
                 "payload_json": json.dumps(item, separators=(",", ":"), default=str),
                 "created_at_utc": created_at,
@@ -891,7 +1066,9 @@ def stage_rows(
     return rows
 
 
-def snapshot_stage_rows(run_id: str, snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def snapshot_stage_rows(
+    run_id: str, snapshots: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     rows = []
     for snapshot in snapshots:
         rows.append(
@@ -901,7 +1078,9 @@ def snapshot_stage_rows(run_id: str, snapshots: list[dict[str, Any]]) -> list[di
                 "source_key": snapshot.get("source_key"),
                 "label": snapshot.get("source_key"),
                 "status": snapshot.get("status", "unknown"),
-                "payload_json": json.dumps(snapshot, separators=(",", ":"), default=str),
+                "payload_json": json.dumps(
+                    snapshot, separators=(",", ":"), default=str
+                ),
                 "created_at_utc": utc_now(),
             }
         )
@@ -959,7 +1138,9 @@ def _write_snapshot(
         "payload": payload,
     }
     path = Path(snapshot["cache_path"])
-    path.write_text(json.dumps(snapshot, separators=(",", ":"), default=str), encoding="utf-8")
+    path.write_text(
+        json.dumps(snapshot, separators=(",", ":"), default=str), encoding="utf-8"
+    )
     return snapshot
 
 

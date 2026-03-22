@@ -248,9 +248,14 @@ def upsert_satellites(db_path: str | Path, satellites: list[dict[str, Any]]) -> 
         f"VALUES ({', '.join('?' for _ in columns)}) "
         f"ON CONFLICT(norad_id) DO UPDATE SET {assignments}"
     )
-    normalized_rows = [EnrichedSatellite.model_validate(satellite).model_dump(mode="python") for satellite in satellites]
+    normalized_rows = [
+        EnrichedSatellite.model_validate(satellite).model_dump(mode="python")
+        for satellite in satellites
+    ]
     with connect(db_path) as conn:
-        conn.executemany(sql, [[row.get(column) for column in columns] for row in normalized_rows])
+        conn.executemany(
+            sql, [[row.get(column) for column in columns] for row in normalized_rows]
+        )
     return len(normalized_rows)
 
 
@@ -262,7 +267,9 @@ def fetch_satellites(db_path: str | Path) -> list[dict[str, Any]]:
 
 def fetch_satellite(db_path: str | Path, norad_id: int) -> dict[str, Any] | None:
     with connect(db_path) as conn:
-        row = conn.execute("SELECT * FROM satellites WHERE norad_id = ?", [norad_id]).fetchone()
+        row = conn.execute(
+            "SELECT * FROM satellites WHERE norad_id = ?", [norad_id]
+        ).fetchone()
     return dict(row) if row else None
 
 
@@ -275,8 +282,8 @@ def upsert_manifest(db_path: str | Path, manifest: dict[str, Any]) -> None:
     with connect(db_path) as conn:
         conn.execute(
             f"""
-            INSERT INTO run_manifest ({', '.join(columns)})
-            VALUES ({', '.join('?' for _ in columns)})
+            INSERT INTO run_manifest ({", ".join(columns)})
+            VALUES ({", ".join("?" for _ in columns)})
             ON CONFLICT(run_id) DO UPDATE SET {assignments}
             """,
             [row[column] for column in columns],
@@ -308,7 +315,10 @@ def replace_quality_findings(
     with connect(db_path) as conn:
         conn.execute("DELETE FROM quality_findings WHERE run_id = ?", [run_id])
         if findings:
-            normalized = [QualityFinding.model_validate(finding).model_dump(mode="python") for finding in findings]
+            normalized = [
+                QualityFinding.model_validate(finding).model_dump(mode="python")
+                for finding in findings
+            ]
             conn.executemany(
                 """
                 INSERT INTO quality_findings (run_id, norad_id, severity, code, message, created_at_utc)
@@ -405,4 +415,6 @@ def _ensure_run_manifest_columns(conn: sqlite3.Connection) -> None:
     }
     for column_name, column_sql in required_columns.items():
         if column_name not in existing_columns:
-            conn.execute(f"ALTER TABLE run_manifest ADD COLUMN {column_name} {column_sql}")
+            conn.execute(
+                f"ALTER TABLE run_manifest ADD COLUMN {column_name} {column_sql}"
+            )

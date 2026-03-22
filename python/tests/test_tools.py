@@ -62,7 +62,9 @@ async def test_http_tool_emits_error_result() -> None:
 
 
 @pytest.mark.anyio
-async def test_web_search_tool_caches_results(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+async def test_web_search_tool_caches_results(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     html = """
     <div class="result">
       <a class="result__a" href="https://example.com/one">Example One</a>
@@ -95,7 +97,11 @@ async def test_web_search_tool_caches_results(monkeypatch: pytest.MonkeyPatch, t
     first = await search_tool.call(ctx, query="example query", max_results=2)
     second = await search_tool.call(ctx, query="example query", max_results=2)
     events = read_events(stream)
-    search_results = [event for event in events if event.get("tool") == "web_search" and event["type"] == "tool_result"]
+    search_results = [
+        event
+        for event in events
+        if event.get("tool") == "web_search" and event["type"] == "tool_result"
+    ]
 
     assert request_count == 1
     assert len(first["results"]) == 2
@@ -105,7 +111,9 @@ async def test_web_search_tool_caches_results(monkeypatch: pytest.MonkeyPatch, t
 
 
 @pytest.mark.anyio
-async def test_web_search_tool_soft_fails_when_provider_errors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+async def test_web_search_tool_soft_fails_when_provider_errors(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(403, text="Blocked", request=request)
 
@@ -118,7 +126,11 @@ async def test_web_search_tool_soft_fails_when_provider_errors(monkeypatch: pyte
 
     result = await search_tool.call(ctx, query="blocked query", max_results=2)
     events = read_events(stream)
-    search_result = next(event for event in events if event["type"] == "tool_result" and event["tool"] == "web_search")
+    search_result = next(
+        event
+        for event in events
+        if event["type"] == "tool_result" and event["tool"] == "web_search"
+    )
 
     assert result["results"] == []
     assert result["provider_attempts"][0]["provider"] == "duckduckgo"
@@ -150,7 +162,9 @@ async def test_web_scrape_tool_extracts_title_and_text() -> None:
 
     scrape_tool = WebScrapeTool(
         http_tool=HttpTool(
-            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            client_factory=lambda: httpx.AsyncClient(
+                transport=httpx.MockTransport(handler)
+            )
         )
     )
     ctx, _stream = make_context()
@@ -232,7 +246,9 @@ async def test_llm_tool_openrouter_emits_usage(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     llm_tool = LLMTool(
         http_tool=HttpTool(
-            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            client_factory=lambda: httpx.AsyncClient(
+                transport=httpx.MockTransport(handler)
+            )
         )
     )
     ctx, stream = make_context()
@@ -253,11 +269,17 @@ async def test_llm_tool_openrouter_emits_usage(monkeypatch: pytest.MonkeyPatch) 
     assert result["output"]["headline"] == "Demo"
     assert result["estimated_cost_usd"] == pytest.approx(0.0012)
     assert any(event["type"] == "llm_call" for event in events)
-    assert any(event["type"] == "llm_result" and event["estimated_cost_usd"] == pytest.approx(0.0012) for event in events)
+    assert any(
+        event["type"] == "llm_result"
+        and event["estimated_cost_usd"] == pytest.approx(0.0012)
+        for event in events
+    )
 
 
 @pytest.mark.anyio
-async def test_llm_tool_openrouter_accepts_content_parts(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_llm_tool_openrouter_accepts_content_parts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     response_payload = {
         "id": "openrouter-req-2",
         "model": "openai/gpt-4o-mini",
@@ -267,7 +289,7 @@ async def test_llm_tool_openrouter_accepts_content_parts(monkeypatch: pytest.Mon
                     "content": [
                         {
                             "type": "output_text",
-                            "text": "```json\n{\"headline\":\"Demo\",\"summary\":\"From parts\",\"source_urls\":[\"https://example.com\"]}\n```",
+                            "text": '```json\n{"headline":"Demo","summary":"From parts","source_urls":["https://example.com"]}\n```',
                         }
                     ]
                 }
@@ -290,7 +312,9 @@ async def test_llm_tool_openrouter_accepts_content_parts(monkeypatch: pytest.Mon
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     llm_tool = LLMTool(
         http_tool=HttpTool(
-            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            client_factory=lambda: httpx.AsyncClient(
+                transport=httpx.MockTransport(handler)
+            )
         )
     )
     ctx, _stream = make_context()
@@ -311,11 +335,14 @@ async def test_llm_tool_openrouter_accepts_content_parts(monkeypatch: pytest.Mon
     assert result["output"]["summary"] == "From parts"
 
 
-def test_test_tools_recipe_tolerates_llm_provider_parse_error(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+def test_test_tools_recipe_tolerates_llm_provider_parse_error(
+    monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
     async def fail_call(self: LLMTool, ctx: AgentContext, **_: Any) -> dict[str, Any]:
         raise ValueError("OpenRouter structured output was not valid JSON")
 
     from atlas_weave.agent import AgentResult
+
     monkeypatch.setattr(LLMTool, "has_credentials", lambda self, provider: True)
     monkeypatch.setattr(LLMTool, "call", fail_call)
 
@@ -324,15 +351,24 @@ def test_test_tools_recipe_tolerates_llm_provider_parse_error(monkeypatch: pytes
     async def fake_http_execute(self: Any, ctx: AgentContext) -> AgentResult:
         payload = {"id": 1, "title": "demo"}
         ctx.state[self.name] = {"payload": payload}
-        return AgentResult(records_processed=1, summary={"url": "https://example.com", "payload": payload})
+        return AgentResult(
+            records_processed=1,
+            summary={"url": "https://example.com", "payload": payload},
+        )
 
     async def fake_search_execute(self: Any, ctx: AgentContext) -> AgentResult:
         results = [{"url": "https://example.com", "title": "Example"}]
         ctx.state[self.name] = {"query": "example domain", "results": results}
-        return AgentResult(records_processed=1, summary={"query": "example domain", "results": results})
+        return AgentResult(
+            records_processed=1, summary={"query": "example domain", "results": results}
+        )
 
     async def fake_scrape_execute(self: Any, ctx: AgentContext) -> AgentResult:
-        result = {"url": "https://example.com", "title": "Example", "text": "Example text"}
+        result = {
+            "url": "https://example.com",
+            "title": "Example",
+            "text": "Example text",
+        }
         ctx.state[self.name] = result
         return AgentResult(records_processed=1, summary=result)
 
@@ -358,7 +394,9 @@ def test_test_tools_recipe_tolerates_llm_provider_parse_error(monkeypatch: pytes
     events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
 
     llm_completed = next(
-        event for event in events if event["type"] == "node_completed" and event["node_id"] == "llm_agent"
+        event
+        for event in events
+        if event["type"] == "node_completed" and event["node_id"] == "llm_agent"
     )
     assert llm_completed["summary"]["summary"]["skipped"] is True
     assert "llm_error" in llm_completed["summary"]["summary"]
@@ -366,7 +404,9 @@ def test_test_tools_recipe_tolerates_llm_provider_parse_error(monkeypatch: pytes
 
 
 @pytest.mark.anyio
-async def test_llm_tool_anthropic_uses_structured_output(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_llm_tool_anthropic_uses_structured_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     response_payload = {
         "id": "anthropic-req",
         "model": "claude-3-5-haiku-latest",
@@ -398,7 +438,9 @@ async def test_llm_tool_anthropic_uses_structured_output(monkeypatch: pytest.Mon
     monkeypatch.setenv("CLAUDE_API_KEY", "test-key")
     llm_tool = LLMTool(
         http_tool=HttpTool(
-            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            client_factory=lambda: httpx.AsyncClient(
+                transport=httpx.MockTransport(handler)
+            )
         )
     )
     ctx, stream = make_context()
@@ -418,4 +460,7 @@ async def test_llm_tool_anthropic_uses_structured_output(monkeypatch: pytest.Mon
 
     assert result["output"]["headline"] == "Anthropic Demo"
     assert result["estimated_cost_usd"] > 0
-    assert any(event["type"] == "llm_result" and event["completion_tokens"] == 50 for event in events)
+    assert any(
+        event["type"] == "llm_result" and event["completion_tokens"] == 50
+        for event in events
+    )

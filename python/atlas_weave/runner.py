@@ -27,7 +27,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-id", type=str, default=None)
     parser.add_argument("--config-json", type=str, default=None)
     parser.add_argument("--describe-recipe", type=str, default=None)
-    parser.add_argument("--debug", action="store_true", default=False, help="Enable DEBUG logging and print a human-readable run summary to stderr")
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="Enable DEBUG logging and print a human-readable run summary to stderr",
+    )
     return parser.parse_args()
 
 
@@ -55,7 +60,9 @@ def _load_recipe(recipe_name: str) -> Recipe:
     module = importlib.import_module(f"recipes.{recipe_name}.recipe")
     recipe = getattr(module, "RECIPE", None)
     if recipe is None or not isinstance(recipe, Recipe):
-        raise AttributeError(f"recipe {recipe_name} does not export a Recipe instance named RECIPE")
+        raise AttributeError(
+            f"recipe {recipe_name} does not export a Recipe instance named RECIPE"
+        )
     return recipe
 
 
@@ -199,7 +206,12 @@ async def run_recipe(
 ) -> None:
     recipe = _load_recipe(recipe_name)
     plan = build_execution_plan(recipe)
-    logger.info("Recipe loaded: %s (%d agents, %d levels)", recipe.name, len(recipe.agents), len(plan.levels))
+    logger.info(
+        "Recipe loaded: %s (%d agents, %d levels)",
+        recipe.name,
+        len(recipe.agents),
+        len(plan.levels),
+    )
     metrics = RunMetrics()
     emitter = EventEmitter(run_id=run_id, hooks=[metrics.record])
     tools = register_builtin_tools(ToolRegistry())
@@ -222,7 +234,11 @@ async def run_recipe(
     try:
         for level in plan.levels:
             if cancellation.cancelled:
-                pending_nodes = [name for name, status in status_by_node.items() if status == "pending"]
+                pending_nodes = [
+                    name
+                    for name, status in status_by_node.items()
+                    if status == "pending"
+                ]
                 for node_id in pending_nodes:
                     status_by_node[node_id] = "skipped"
                     emitter.node_skipped(node_id, message=cancellation.message)
@@ -290,13 +306,20 @@ async def run_recipe(
                 emitter.run_cancelled(cancellation.message)
                 return
 
-        completed = sum(1 for status in status_by_node.values() if status == "completed")
+        completed = sum(
+            1 for status in status_by_node.values() if status == "completed"
+        )
         failed = sum(1 for status in status_by_node.values() if status == "failed")
         skipped = sum(1 for status in status_by_node.values() if status == "skipped")
-        cancelled = sum(1 for status in status_by_node.values() if status == "cancelled")
+        cancelled = sum(
+            1 for status in status_by_node.values() if status == "cancelled"
+        )
         logger.info(
             "Run completed: %d completed, %d failed, %d skipped, %d cancelled",
-            completed, failed, skipped, cancelled,
+            completed,
+            failed,
+            skipped,
+            cancelled,
         )
         emitter.run_completed(
             {
@@ -337,7 +360,9 @@ def main() -> None:
     try:
         command = _command_from_args_or_stdin(args)
         resume_state_raw = command.get("resume_state")
-        resume_state = dict(resume_state_raw) if isinstance(resume_state_raw, dict) else None
+        resume_state = (
+            dict(resume_state_raw) if isinstance(resume_state_raw, dict) else None
+        )
         asyncio.run(
             run_recipe(
                 recipe_name=str(command["recipe"]),

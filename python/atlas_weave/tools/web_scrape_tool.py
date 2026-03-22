@@ -45,9 +45,13 @@ class WebScrapeTool(Tool):
         )
 
 
-def _extract_page(url: str, html: str, max_chars: int, max_links: int) -> dict[str, Any]:
+def _extract_page(
+    url: str, html: str, max_chars: int, max_links: int
+) -> dict[str, Any]:
     soup = BeautifulSoup(html, "html.parser")
-    title = " ".join((soup.title.get_text(" ", strip=True) if soup.title else "").split())
+    title = " ".join(
+        (soup.title.get_text(" ", strip=True) if soup.title else "").split()
+    )
     text = " ".join(soup.get_text(" ", strip=True).split())
     links = []
 

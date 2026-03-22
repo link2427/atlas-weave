@@ -37,7 +37,9 @@ def build_execution_plan(recipe: Recipe) -> DagPlan:
     levels: list[list[str]] = []
 
     while remaining:
-        ready = [name for name in agent_names if name in remaining and indegree[name] == 0]
+        ready = [
+            name for name in agent_names if name in remaining and indegree[name] == 0
+        ]
         if not ready:
             raise ValueError("recipe graph contains a cycle")
 

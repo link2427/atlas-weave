@@ -41,7 +41,9 @@ class EventEmitter:
     def node_started(self, node_id: str) -> None:
         self.emit("node_started", node_id=node_id)
 
-    def node_completed(self, node_id: str, duration_ms: int, summary: dict[str, Any]) -> None:
+    def node_completed(
+        self, node_id: str, duration_ms: int, summary: dict[str, Any]
+    ) -> None:
         self.emit(
             "node_completed",
             node_id=node_id,

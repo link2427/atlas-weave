@@ -54,7 +54,9 @@ async def run_tool_operation(
     cache_hit: bool | None = None,
 ) -> ResultT:
     request_id = request_id or new_request_id()
-    ctx.emit.tool_call(node_id=node_id, tool=tool_name, request_id=request_id, input=input_payload)
+    ctx.emit.tool_call(
+        node_id=node_id, tool=tool_name, request_id=request_id, input=input_payload
+    )
     started_at = perf_counter()
 
     try:

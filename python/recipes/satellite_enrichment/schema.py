@@ -392,12 +392,21 @@ def derive_orbit_class(altitude_km: float | None) -> str | None:
 # CelesTrak groups that are meta-categories (aggregation/status groups), not actual constellations.
 # These should be filtered out when deriving constellation names.
 _META_GROUPS = {
-    "active", "visual", "analyst", "tle-new", "last-30-days",
-    "active-geo", "geo-protected", "other", "geo",
+    "active",
+    "visual",
+    "analyst",
+    "tle-new",
+    "last-30-days",
+    "active-geo",
+    "geo-protected",
+    "other",
+    "geo",
 }
 
 
-def derive_constellation_name(object_name: str | None, celestrak_groups: list[str]) -> str | None:
+def derive_constellation_name(
+    object_name: str | None, celestrak_groups: list[str]
+) -> str | None:
     # Filter out meta-groups that don't represent actual constellations
     specific_groups = [g for g in celestrak_groups if g and g not in _META_GROUPS]
     if specific_groups:

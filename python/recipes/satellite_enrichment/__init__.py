@@ -1,2 +1,1 @@
 """Satellite enrichment recipe package."""
-

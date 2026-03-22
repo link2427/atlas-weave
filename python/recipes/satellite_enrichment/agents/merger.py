@@ -107,29 +107,59 @@ PROTECTED_FIELDS = {
 
 class RecordMerger(Agent):
     name = "record_merger"
-    description = "Merge staged source records into the canonical enriched satellite table."
+    description = (
+        "Merge staged source records into the canonical enriched satellite table."
+    )
     inputs = ["staged_sources"]
     outputs = ["merged_satellites", "research_queue"]
 
     async def execute(self, ctx: AgentContext) -> AgentResult:
         ctx.raise_if_cancelled()
         output_db_path = _db_path(ctx)
-        satcat_rows = db.fetch_stage_payloads(output_db_path, "stage_space_track_satcat", ctx.run_id)
-        gp_rows = db.fetch_stage_payloads(output_db_path, "stage_space_track_gp", ctx.run_id)
-        celestrak_rows = db.fetch_stage_payloads(output_db_path, "stage_celestrak_satcat", ctx.run_id)
-        discos_rows = db.fetch_stage_payloads(output_db_path, "stage_discos", ctx.run_id)
+        satcat_rows = db.fetch_stage_payloads(
+            output_db_path, "stage_space_track_satcat", ctx.run_id
+        )
+        gp_rows = db.fetch_stage_payloads(
+            output_db_path, "stage_space_track_gp", ctx.run_id
+        )
+        celestrak_rows = db.fetch_stage_payloads(
+            output_db_path, "stage_celestrak_satcat", ctx.run_id
+        )
+        discos_rows = db.fetch_stage_payloads(
+            output_db_path, "stage_discos", ctx.run_id
+        )
         ucs_rows = db.fetch_stage_payloads(output_db_path, "stage_ucs", ctx.run_id)
 
-        intldes_to_norad = _build_intldes_index([satcat_rows, gp_rows, celestrak_rows, discos_rows, ucs_rows])
+        intldes_to_norad = _build_intldes_index(
+            [satcat_rows, gp_rows, celestrak_rows, discos_rows, ucs_rows]
+        )
         unresolved_rows: list[dict[str, Any]] = []
-        satcat_by_norad = _index_rows(satcat_rows, "space_track_satcat", intldes_to_norad, unresolved_rows, ctx.run_id)
-        gp_by_norad = _index_rows(gp_rows, "space_track_gp", intldes_to_norad, unresolved_rows, ctx.run_id)
-        celestrak_by_norad = _index_rows(celestrak_rows, "celestrak", intldes_to_norad, unresolved_rows, ctx.run_id)
-        discos_by_norad = _index_rows(discos_rows, "discos", intldes_to_norad, unresolved_rows, ctx.run_id)
-        ucs_by_norad = _index_rows(ucs_rows, "ucs", intldes_to_norad, unresolved_rows, ctx.run_id)
+        satcat_by_norad = _index_rows(
+            satcat_rows,
+            "space_track_satcat",
+            intldes_to_norad,
+            unresolved_rows,
+            ctx.run_id,
+        )
+        gp_by_norad = _index_rows(
+            gp_rows, "space_track_gp", intldes_to_norad, unresolved_rows, ctx.run_id
+        )
+        celestrak_by_norad = _index_rows(
+            celestrak_rows, "celestrak", intldes_to_norad, unresolved_rows, ctx.run_id
+        )
+        discos_by_norad = _index_rows(
+            discos_rows, "discos", intldes_to_norad, unresolved_rows, ctx.run_id
+        )
+        ucs_by_norad = _index_rows(
+            ucs_rows, "ucs", intldes_to_norad, unresolved_rows, ctx.run_id
+        )
 
         candidate_norad_ids = sorted(
-            set(satcat_by_norad) | set(gp_by_norad) | set(celestrak_by_norad) | set(discos_by_norad) | set(ucs_by_norad)
+            set(satcat_by_norad)
+            | set(gp_by_norad)
+            | set(celestrak_by_norad)
+            | set(discos_by_norad)
+            | set(ucs_by_norad)
         )
         record_limit = _record_limit(ctx)
         if record_limit:
@@ -143,7 +173,13 @@ class RecordMerger(Agent):
 
         for index, norad_id in enumerate(candidate_norad_ids, start=1):
             ctx.raise_if_cancelled()
-            merged, source_fields, candidate_values, conflict_fields, celestrak_groups = _merge_satellite_record(
+            (
+                merged,
+                source_fields,
+                candidate_values,
+                conflict_fields,
+                celestrak_groups,
+            ) = _merge_satellite_record(
                 norad_id=norad_id,
                 satcat_rows=satcat_by_norad.get(norad_id, []),
                 gp_rows=gp_by_norad.get(norad_id, []),
@@ -155,12 +191,32 @@ class RecordMerger(Agent):
             completeness = compute_completeness(merged)
             merged["data_completeness_pct"] = completeness
             completeness_buckets[_bucket_label(completeness)] += 1
-            merged["source_space_track"] = json.dumps(sorted(source_fields["space_track"])) if source_fields["space_track"] else None
-            merged["source_discos"] = json.dumps(sorted(source_fields["discos"])) if source_fields["discos"] else None
-            merged["source_ucs"] = json.dumps(sorted(source_fields["ucs"])) if source_fields["ucs"] else None
-            merged["source_celestrak"] = json.dumps(sorted(source_fields["celestrak"])) if source_fields["celestrak"] else None
-            merged_rows.append(EnrichedSatellite.model_validate(merged).model_dump(mode="python"))
-            lineage_rows.extend(_build_lineage_rows(ctx.run_id, norad_id, merged, candidate_values))
+            merged["source_space_track"] = (
+                json.dumps(sorted(source_fields["space_track"]))
+                if source_fields["space_track"]
+                else None
+            )
+            merged["source_discos"] = (
+                json.dumps(sorted(source_fields["discos"]))
+                if source_fields["discos"]
+                else None
+            )
+            merged["source_ucs"] = (
+                json.dumps(sorted(source_fields["ucs"]))
+                if source_fields["ucs"]
+                else None
+            )
+            merged["source_celestrak"] = (
+                json.dumps(sorted(source_fields["celestrak"]))
+                if source_fields["celestrak"]
+                else None
+            )
+            merged_rows.append(
+                EnrichedSatellite.model_validate(merged).model_dump(mode="python")
+            )
+            lineage_rows.extend(
+                _build_lineage_rows(ctx.run_id, norad_id, merged, candidate_values)
+            )
 
             missing_fields = sorted(_missing_llm_fields(merged))
             if _needs_research(merged, threshold, missing_fields, conflict_fields):
@@ -174,7 +230,9 @@ class RecordMerger(Agent):
                         "payload_json": json.dumps(
                             {
                                 "norad_id": norad_id,
-                                "priority": _research_priority(merged, missing_fields, conflict_fields),
+                                "priority": _research_priority(
+                                    merged, missing_fields, conflict_fields
+                                ),
                                 "missing_fields": missing_fields,
                                 "conflict_fields": conflict_fields,
                                 "record": merged,
@@ -187,11 +245,19 @@ class RecordMerger(Agent):
                 )
 
             if index % 500 == 0:
-                ctx.emit.progress(self.name, min(0.95, index / max(1, len(candidate_norad_ids))), f"Merged {index}/{len(candidate_norad_ids)} satellites")
+                ctx.emit.progress(
+                    self.name,
+                    min(0.95, index / max(1, len(candidate_norad_ids))),
+                    f"Merged {index}/{len(candidate_norad_ids)} satellites",
+                )
 
         db.upsert_satellites(output_db_path, merged_rows)
-        db.replace_stage_rows(output_db_path, "research_queue", ctx.run_id, research_queue_rows)
-        db.replace_stage_rows(output_db_path, "unresolved_identities", ctx.run_id, unresolved_rows)
+        db.replace_stage_rows(
+            output_db_path, "research_queue", ctx.run_id, research_queue_rows
+        )
+        db.replace_stage_rows(
+            output_db_path, "unresolved_identities", ctx.run_id, unresolved_rows
+        )
         db.replace_merge_lineage(output_db_path, ctx.run_id, lineage_rows)
 
         now = utc_now()
@@ -203,7 +269,11 @@ class RecordMerger(Agent):
                 "output_db_path": str(output_db_path),
                 "latest_db_path": ctx.state["satellite_enrichment"]["latest_db_path"],
                 "total_records": len(merged_rows),
-                "active_records": sum(1 for merged in merged_rows if merged.get("active_status") == "active"),
+                "active_records": sum(
+                    1
+                    for merged in merged_rows
+                    if merged.get("active_status") == "active"
+                ),
                 "research_candidates": len(research_queue_rows),
                 "source_breakdown_json": json.dumps(
                     {
@@ -215,10 +285,21 @@ class RecordMerger(Agent):
                     },
                     separators=(",", ":"),
                 ),
-                "source_status_json": json.dumps(ctx.state.get("_run_summary", {}).get("source_status", {}), separators=(",", ":")),
-                "cached_sources_json": json.dumps(ctx.state.get("_run_summary", {}).get("cached_sources", []), separators=(",", ":")),
-                "stale_sources_json": json.dumps(ctx.state.get("_run_summary", {}).get("stale_sources", []), separators=(",", ":")),
-                "space_track_mode": str(ctx.config.get("space_track_mode", "prefer_cache")),
+                "source_status_json": json.dumps(
+                    ctx.state.get("_run_summary", {}).get("source_status", {}),
+                    separators=(",", ":"),
+                ),
+                "cached_sources_json": json.dumps(
+                    ctx.state.get("_run_summary", {}).get("cached_sources", []),
+                    separators=(",", ":"),
+                ),
+                "stale_sources_json": json.dumps(
+                    ctx.state.get("_run_summary", {}).get("stale_sources", []),
+                    separators=(",", ":"),
+                ),
+                "space_track_mode": str(
+                    ctx.config.get("space_track_mode", "prefer_cache")
+                ),
                 "field_completion_rates_json": "{}",
                 "created_at_utc": now,
                 "updated_at_utc": now,
@@ -230,7 +311,11 @@ class RecordMerger(Agent):
             "research_candidates": len(research_queue_rows),
             "unresolved_records": len(unresolved_rows),
         }
-        ctx.emit.log(self.name, "info", f"Merged {len(merged_rows)} satellites and queued {len(research_queue_rows)} for research.")
+        ctx.emit.log(
+            self.name,
+            "info",
+            f"Merged {len(merged_rows)} satellites and queued {len(research_queue_rows)} for research.",
+        )
         ctx.emit.progress(self.name, 1.0, "Record merge complete")
         return AgentResult(
             records_processed=len(candidate_norad_ids),
@@ -292,7 +377,9 @@ def _index_rows(
                     "run_id": run_id,
                     "norad_id": None,
                     "source_key": source_name,
-                    "label": payload.get("object_name") or payload.get("international_designator") or source_name,
+                    "label": payload.get("object_name")
+                    or payload.get("international_designator")
+                    or source_name,
                     "status": "unresolved",
                     "payload_json": json.dumps(
                         {
@@ -318,44 +405,109 @@ def _merge_satellite_record(
     celestrak_rows: list[dict[str, Any]],
     discos_rows: list[dict[str, Any]],
     ucs_rows: list[dict[str, Any]],
-) -> tuple[dict[str, Any], dict[str, set[str]], dict[str, list[dict[str, Any]]], list[str]]:
+) -> tuple[
+    dict[str, Any], dict[str, set[str]], dict[str, list[dict[str, Any]]], list[str]
+]:
     record = _blank_record(norad_id)
-    source_fields = {name: set() for name in ("space_track", "discos", "ucs", "celestrak")}
+    source_fields = {
+        name: set() for name in ("space_track", "discos", "ucs", "celestrak")
+    }
     candidate_values: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     best_celestrak = _best_row(celestrak_rows)
     if best_celestrak:
-        _merge_fields(record, source_fields, candidate_values, "celestrak", best_celestrak, IDENTITY_FIELDS + ORBIT_FIELDS)
+        _merge_fields(
+            record,
+            source_fields,
+            candidate_values,
+            "celestrak",
+            best_celestrak,
+            IDENTITY_FIELDS + ORBIT_FIELDS,
+        )
 
     best_satcat = _best_row(satcat_rows)
     if best_satcat:
-        _merge_fields(record, source_fields, candidate_values, "space_track", best_satcat, IDENTITY_FIELDS + SPACE_TRACK_FIELDS)
+        _merge_fields(
+            record,
+            source_fields,
+            candidate_values,
+            "space_track",
+            best_satcat,
+            IDENTITY_FIELDS + SPACE_TRACK_FIELDS,
+        )
 
     best_gp = _best_row(gp_rows)
     if best_gp:
-        _merge_fields(record, source_fields, candidate_values, "space_track", best_gp, ORBIT_FIELDS)
+        _merge_fields(
+            record,
+            source_fields,
+            candidate_values,
+            "space_track",
+            best_gp,
+            ORBIT_FIELDS,
+        )
 
     best_ucs = _best_row(ucs_rows)
     if best_ucs:
-        _merge_fields(record, source_fields, candidate_values, "ucs", best_ucs, UCS_OWNERSHIP_FIELDS)
+        _merge_fields(
+            record,
+            source_fields,
+            candidate_values,
+            "ucs",
+            best_ucs,
+            UCS_OWNERSHIP_FIELDS,
+        )
 
     best_discos = _best_row(discos_rows)
     if best_discos:
-        _merge_fields(record, source_fields, candidate_values, "discos", best_discos, DISCOS_OWNERSHIP_FIELDS)
-        _merge_fields(record, source_fields, candidate_values, "discos", best_discos, DISCOS_PHYSICAL_FIELDS)
+        _merge_fields(
+            record,
+            source_fields,
+            candidate_values,
+            "discos",
+            best_discos,
+            DISCOS_OWNERSHIP_FIELDS,
+        )
+        _merge_fields(
+            record,
+            source_fields,
+            candidate_values,
+            "discos",
+            best_discos,
+            DISCOS_PHYSICAL_FIELDS,
+        )
 
     if best_ucs:
-        _merge_fields(record, source_fields, candidate_values, "ucs", best_ucs, UCS_PHYSICAL_FIELDS)
+        _merge_fields(
+            record,
+            source_fields,
+            candidate_values,
+            "ucs",
+            best_ucs,
+            UCS_PHYSICAL_FIELDS,
+        )
 
-    groups = sorted({row.get("group_name") for row in celestrak_rows if row.get("group_name")})
+    groups = sorted(
+        {row.get("group_name") for row in celestrak_rows if row.get("group_name")}
+    )
     if groups:
         source_fields["celestrak"].add("group_name")
     constellation_name = derive_constellation_name(record.get("object_name"), groups)
     if constellation_name:
-        _merge_fields(record, source_fields, candidate_values, "celestrak", {"constellation_name": constellation_name}, ("constellation_name",))
+        _merge_fields(
+            record,
+            source_fields,
+            candidate_values,
+            "celestrak",
+            {"constellation_name": constellation_name},
+            ("constellation_name",),
+        )
 
     if constellation_name:
-        from recipes.satellite_enrichment.constellation_templates import CONSTELLATION_TEMPLATES
+        from recipes.satellite_enrichment.constellation_templates import (
+            CONSTELLATION_TEMPLATES,
+        )
+
         template = CONSTELLATION_TEMPLATES.get(constellation_name.lower())
         if template:
             for field_name, value in template.items():
@@ -427,7 +579,9 @@ def _finalize_derived_fields(record: dict[str, Any]) -> None:
         elif name_upper:
             record["object_type"] = "PAYLOAD"
 
-    if record.get("launch_date") in {None, ""} and record.get("international_designator"):
+    if record.get("launch_date") in {None, ""} and record.get(
+        "international_designator"
+    ):
         intldes = str(record["international_designator"]).strip()
         if len(intldes) >= 4:
             try:
@@ -442,7 +596,9 @@ def _finalize_derived_fields(record: dict[str, Any]) -> None:
     object_type = str(record.get("object_type") or "").upper()
     record["is_debris"] = "DEB" in object_type or "DEBRIS" in object_type
     object_name = str(record.get("object_name") or "").upper()
-    record["is_crewed"] = any(keyword in object_name for keyword in ("CREW", "DRAGON", "SOYUZ", "STARLINER"))
+    record["is_crewed"] = any(
+        keyword in object_name for keyword in ("CREW", "DRAGON", "SOYUZ", "STARLINER")
+    )
     if record.get("active_status") in {None, ""}:
         if record.get("decay_date"):
             record["active_status"] = "decayed"
@@ -478,15 +634,22 @@ def _build_lineage_rows(
             if candidate.get("value") == chosen_value:
                 chosen_source = candidate.get("source")
                 break
-        unique_values = {json.dumps(candidate.get("value"), sort_keys=True, default=str) for candidate in candidates}
+        unique_values = {
+            json.dumps(candidate.get("value"), sort_keys=True, default=str)
+            for candidate in candidates
+        }
         rows.append(
             {
                 "run_id": run_id,
                 "norad_id": norad_id,
                 "field_name": field_name,
                 "chosen_source": chosen_source,
-                "chosen_value_json": json.dumps(chosen_value, separators=(",", ":"), default=str),
-                "candidate_values_json": json.dumps(candidates, separators=(",", ":"), default=str),
+                "chosen_value_json": json.dumps(
+                    chosen_value, separators=(",", ":"), default=str
+                ),
+                "candidate_values_json": json.dumps(
+                    candidates, separators=(",", ":"), default=str
+                ),
                 "conflict_count": max(0, len(unique_values) - 1),
                 "created_at_utc": utc_now(),
             }
@@ -505,7 +668,10 @@ def _missing_llm_fields(record: dict[str, Any]) -> set[str]:
 def _conflict_fields(candidate_values: dict[str, list[dict[str, Any]]]) -> list[str]:
     conflicts: list[str] = []
     for field_name, candidates in candidate_values.items():
-        unique_values = {json.dumps(candidate.get("value"), sort_keys=True, default=str) for candidate in candidates}
+        unique_values = {
+            json.dumps(candidate.get("value"), sort_keys=True, default=str)
+            for candidate in candidates
+        }
         if len(unique_values) > 1:
             conflicts.append(field_name)
     return sorted(conflicts)
@@ -524,10 +690,18 @@ def _needs_research(
     )
 
 
-def _research_priority(record: dict[str, Any], missing_fields: list[str], conflict_fields: list[str]) -> list[float]:
+def _research_priority(
+    record: dict[str, Any], missing_fields: list[str], conflict_fields: list[str]
+) -> list[float]:
     active_score = -1 if record.get("active_status") == "active" else 0
     completeness = float(record.get("data_completeness_pct", 0.0))
-    return [active_score, -len(missing_fields), -len(conflict_fields), completeness, int(record["norad_id"])]
+    return [
+        active_score,
+        -len(missing_fields),
+        -len(conflict_fields),
+        completeness,
+        int(record["norad_id"]),
+    ]
 
 
 def _bucket_label(completeness: float) -> str:

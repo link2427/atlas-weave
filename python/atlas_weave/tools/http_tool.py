@@ -18,7 +18,13 @@ VISIBLE_REQUEST_HEADERS = {
     "user-agent",
     "x-title",
 }
-VISIBLE_RESPONSE_HEADERS = {"cache-control", "content-type", "etag", "last-modified", "x-request-id"}
+VISIBLE_RESPONSE_HEADERS = {
+    "cache-control",
+    "content-type",
+    "etag",
+    "last-modified",
+    "x-request-id",
+}
 REDACTED_HEADERS = {"api-key", "authorization", "x-api-key"}
 
 
@@ -38,13 +44,17 @@ class HttpToolResponse:
 
 class HttpTool(Tool):
     name = "http"
-    description = "Execute an HTTP request and emit structured request/response metadata."
+    description = (
+        "Execute an HTTP request and emit structured request/response metadata."
+    )
 
     def __init__(
         self,
         client_factory: Callable[[], httpx.AsyncClient] | None = None,
     ) -> None:
-        self._client_factory = client_factory or (lambda: httpx.AsyncClient(follow_redirects=True))
+        self._client_factory = client_factory or (
+            lambda: httpx.AsyncClient(follow_redirects=True)
+        )
 
     async def call(
         self,
@@ -93,7 +103,9 @@ class HttpTool(Tool):
         )
 
 
-def _serialize_response(method: str, url: str, response: httpx.Response) -> HttpToolResponse:
+def _serialize_response(
+    method: str, url: str, response: httpx.Response
+) -> HttpToolResponse:
     content_type = response.headers.get("content-type", "")
     text: str | None = response.text if _is_text_response(content_type) else None
     json_body: Any | None = None

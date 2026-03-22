@@ -100,7 +100,9 @@ def test_graph_patch() -> None:
 
 def test_tool_call() -> None:
     emitter, stream = make_emitter()
-    emitter.tool_call("agent_a", tool="http", request_id="req1", input={"url": "https://x.com"})
+    emitter.tool_call(
+        "agent_a", tool="http", request_id="req1", input={"url": "https://x.com"}
+    )
     event = parse(stream)[0]
     assert event["type"] == "tool_call"
     assert event["tool"] == "http"
@@ -110,9 +112,13 @@ def test_tool_call() -> None:
 def test_tool_result_with_optional_fields() -> None:
     emitter, stream = make_emitter()
     emitter.tool_result(
-        "agent_a", tool="http", request_id="req1",
-        output={"status": 200}, duration_ms=50,
-        cache_hit=True, error="partial",
+        "agent_a",
+        tool="http",
+        request_id="req1",
+        output={"status": 200},
+        duration_ms=50,
+        cache_hit=True,
+        error="partial",
     )
     event = parse(stream)[0]
     assert event["type"] == "tool_result"
@@ -124,8 +130,11 @@ def test_tool_result_with_optional_fields() -> None:
 def test_tool_result_without_optional_fields() -> None:
     emitter, stream = make_emitter()
     emitter.tool_result(
-        "agent_a", tool="http", request_id="req1",
-        output={"status": 200}, duration_ms=50,
+        "agent_a",
+        tool="http",
+        request_id="req1",
+        output={"status": 200},
+        duration_ms=50,
     )
     event = parse(stream)[0]
     assert "cache_hit" not in event
@@ -135,8 +144,11 @@ def test_tool_result_without_optional_fields() -> None:
 def test_llm_call_with_prompt_tokens() -> None:
     emitter, stream = make_emitter()
     emitter.llm_call(
-        "agent_a", provider="openrouter", model="gpt-4o",
-        request_id="llm1", input={"messages": []},
+        "agent_a",
+        provider="openrouter",
+        model="gpt-4o",
+        request_id="llm1",
+        input={"messages": []},
         prompt_tokens=100,
     )
     event = parse(stream)[0]
@@ -148,8 +160,11 @@ def test_llm_call_with_prompt_tokens() -> None:
 def test_llm_call_without_prompt_tokens() -> None:
     emitter, stream = make_emitter()
     emitter.llm_call(
-        "agent_a", provider="openrouter", model="gpt-4o",
-        request_id="llm1", input={"messages": []},
+        "agent_a",
+        provider="openrouter",
+        model="gpt-4o",
+        request_id="llm1",
+        input={"messages": []},
     )
     event = parse(stream)[0]
     assert "prompt_tokens" not in event
@@ -158,10 +173,16 @@ def test_llm_call_without_prompt_tokens() -> None:
 def test_llm_result_with_optional_fields() -> None:
     emitter, stream = make_emitter()
     emitter.llm_result(
-        "agent_a", provider="openrouter", model="gpt-4o",
-        request_id="llm1", output={"text": "hi"},
-        duration_ms=200, completion_tokens=45,
-        estimated_cost_usd=0.001, prompt_tokens=100, error="trunc",
+        "agent_a",
+        provider="openrouter",
+        model="gpt-4o",
+        request_id="llm1",
+        output={"text": "hi"},
+        duration_ms=200,
+        completion_tokens=45,
+        estimated_cost_usd=0.001,
+        prompt_tokens=100,
+        error="trunc",
     )
     event = parse(stream)[0]
     assert event["type"] == "llm_result"
@@ -173,9 +194,13 @@ def test_llm_result_with_optional_fields() -> None:
 def test_llm_result_without_optional_fields() -> None:
     emitter, stream = make_emitter()
     emitter.llm_result(
-        "agent_a", provider="openrouter", model="gpt-4o",
-        request_id="llm1", output={"text": "hi"},
-        duration_ms=200, completion_tokens=45,
+        "agent_a",
+        provider="openrouter",
+        model="gpt-4o",
+        request_id="llm1",
+        output={"text": "hi"},
+        duration_ms=200,
+        completion_tokens=45,
         estimated_cost_usd=0.001,
     )
     event = parse(stream)[0]
@@ -224,4 +249,8 @@ def test_multiple_emits_produce_newline_delimited_json() -> None:
     emitter.run_completed(summary={"completed_nodes": 1})
     events = parse(stream)
     assert len(events) == 3
-    assert [e["type"] for e in events] == ["node_started", "node_completed", "run_completed"]
+    assert [e["type"] for e in events] == [
+        "node_started",
+        "node_completed",
+        "run_completed",
+    ]

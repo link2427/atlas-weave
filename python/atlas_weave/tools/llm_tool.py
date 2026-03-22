@@ -115,7 +115,9 @@ class _BaseProvider:
         env_var = _credential_env_var(self.provider_name)
         value = os.getenv(env_var)
         if not value:
-            raise ValueError(f"missing credential for provider {self.provider_name}: {env_var}")
+            raise ValueError(
+                f"missing credential for provider {self.provider_name}: {env_var}"
+            )
         return value
 
     async def complete(
@@ -191,7 +193,9 @@ class OpenRouterProvider(_BaseProvider):
             output=_extract_openai_output(message, json_schema),
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
-            estimated_cost_usd=_openrouter_cost(payload, model, prompt_tokens, completion_tokens),
+            estimated_cost_usd=_openrouter_cost(
+                payload, model, prompt_tokens, completion_tokens
+            ),
             provider_model=payload.get("model"),
         )
 
@@ -249,7 +253,9 @@ class AnthropicProvider(_BaseProvider):
             output=_extract_anthropic_output(payload, json_schema),
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
-            estimated_cost_usd=_estimate_cost(model, prompt_tokens, completion_tokens, ANTHROPIC_PRICING),
+            estimated_cost_usd=_estimate_cost(
+                model, prompt_tokens, completion_tokens, ANTHROPIC_PRICING
+            ),
             provider_model=payload.get("model"),
         )
 
@@ -295,7 +301,9 @@ async def _ensure_openrouter_pricing(http_tool: HttpTool, ctx: AgentContext) -> 
         _openrouter_pricing_cache = pricing_map
         logger.info("Fetched OpenRouter pricing for %d models", len(pricing_map))
     except Exception:  # noqa: BLE001
-        logger.warning("Failed to fetch OpenRouter model pricing; using hardcoded fallback")
+        logger.warning(
+            "Failed to fetch OpenRouter model pricing; using hardcoded fallback"
+        )
         _openrouter_pricing_cache = {}
 
 
@@ -310,7 +318,9 @@ def _openai_messages(
     return normalized
 
 
-def _extract_openai_output(message: dict[str, Any], json_schema: dict[str, Any] | None) -> Any:
+def _extract_openai_output(
+    message: dict[str, Any], json_schema: dict[str, Any] | None
+) -> Any:
     content = message.get("content")
     if json_schema is None:
         return _openai_text_content(content)
@@ -330,8 +340,12 @@ def _extract_openai_output(message: dict[str, Any], json_schema: dict[str, Any] 
     tool_calls = message.get("tool_calls")
     if isinstance(tool_calls, list):
         for tool_call in tool_calls:
-            function = tool_call.get("function") if isinstance(tool_call, dict) else None
-            arguments = function.get("arguments") if isinstance(function, dict) else None
+            function = (
+                tool_call.get("function") if isinstance(tool_call, dict) else None
+            )
+            arguments = (
+                function.get("arguments") if isinstance(function, dict) else None
+            )
             if isinstance(arguments, str) and arguments.strip():
                 return _parse_json_string(arguments)
             if isinstance(arguments, dict):
@@ -376,20 +390,25 @@ def _strip_code_fence(value: str) -> str:
     return value
 
 
-def _extract_anthropic_output(payload: dict[str, Any], json_schema: dict[str, Any] | None) -> Any:
+def _extract_anthropic_output(
+    payload: dict[str, Any], json_schema: dict[str, Any] | None
+) -> Any:
     content = payload.get("content") or []
     if json_schema is None:
         text_blocks = [
-            block.get("text", "")
-            for block in content
-            if block.get("type") == "text"
+            block.get("text", "") for block in content if block.get("type") == "text"
         ]
         return "\n".join(block for block in text_blocks if block)
 
     for block in content:
-        if block.get("type") == "tool_use" and block.get("name") == "atlas_weave_output":
+        if (
+            block.get("type") == "tool_use"
+            and block.get("name") == "atlas_weave_output"
+        ):
             return block.get("input")
-    raise ValueError("Anthropic model did not return the requested structured output tool payload")
+    raise ValueError(
+        "Anthropic model did not return the requested structured output tool payload"
+    )
 
 
 def _openrouter_cost(

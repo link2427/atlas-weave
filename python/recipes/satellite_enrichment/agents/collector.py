@@ -5,7 +5,11 @@ import logging
 from atlas_weave import Agent, AgentContext, AgentResult
 from recipes.satellite_enrichment import db
 from recipes.satellite_enrichment.schema import utc_now
-from recipes.satellite_enrichment.sources import fetch_source_bundle, snapshot_stage_rows, stage_rows
+from recipes.satellite_enrichment.sources import (
+    fetch_source_bundle,
+    snapshot_stage_rows,
+    stage_rows,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +34,11 @@ class StructuredDataCollector(Agent):
         source_counts = bundle.counts()
         logger.info(
             "Staged rows: space_track_satcat=%d, space_track_gp=%d, celestrak=%d, discos=%d, ucs=%d",
-            len(bundle.space_track_satcat), len(bundle.space_track_gp),
-            len(bundle.celestrak_satcat), len(bundle.discos), len(bundle.ucs),
+            len(bundle.space_track_satcat),
+            len(bundle.space_track_gp),
+            len(bundle.celestrak_satcat),
+            len(bundle.discos),
+            len(bundle.ucs),
         )
         staged_records = 0
         staged_records += db.insert_stage_rows(
@@ -57,7 +64,12 @@ class StructuredDataCollector(Agent):
         staged_records += db.insert_stage_rows(
             output_db_path,
             "stage_ucs",
-            stage_rows(ctx.run_id, "ucs", bundle.ucs, status=bundle.source_status.get("ucs", "ok")),
+            stage_rows(
+                ctx.run_id,
+                "ucs",
+                bundle.ucs,
+                status=bundle.source_status.get("ucs", "ok"),
+            ),
         )
         staged_records += db.insert_stage_rows(
             output_db_path,
@@ -85,7 +97,9 @@ class StructuredDataCollector(Agent):
                 "source_status_json": "{}",
                 "cached_sources_json": "[]",
                 "stale_sources_json": "[]",
-                "space_track_mode": str(ctx.config.get("space_track_mode", "prefer_cache")),
+                "space_track_mode": str(
+                    ctx.config.get("space_track_mode", "prefer_cache")
+                ),
                 "field_completion_rates_json": "{}",
                 "created_at_utc": now,
                 "updated_at_utc": now,
@@ -113,6 +127,8 @@ class StructuredDataCollector(Agent):
                 "source_status": bundle.source_status,
                 "cached_sources": bundle.cached_sources,
                 "stale_sources": bundle.stale_sources,
-                "space_track_mode": str(ctx.config.get("space_track_mode", "prefer_cache")),
+                "space_track_mode": str(
+                    ctx.config.get("space_track_mode", "prefer_cache")
+                ),
             },
         )

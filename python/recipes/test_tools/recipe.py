@@ -13,7 +13,9 @@ class HttpAgent(Agent):
 
     async def execute(self, ctx: AgentContext) -> AgentResult:
         ctx.raise_if_cancelled()
-        url = str(ctx.config.get("http_url", "https://jsonplaceholder.typicode.com/todos/1"))
+        url = str(
+            ctx.config.get("http_url", "https://jsonplaceholder.typicode.com/todos/1")
+        )
         response = await ctx.tools.http.call(ctx, method="GET", url=url)
         payload = response.json_body or {"text_preview": response.text_preview}
         ctx.state[self.name] = {"payload": payload}
@@ -35,7 +37,9 @@ class SearchAgent(Agent):
         query = str(ctx.config.get("search_query", "example domain"))
         result = await ctx.tools.web_search.call(ctx, query=query, max_results=3)
         ctx.state[self.name] = {"query": query, "results": result["results"]}
-        ctx.emit.log(self.name, "info", f"Collected {len(result['results'])} search results")
+        ctx.emit.log(
+            self.name, "info", f"Collected {len(result['results'])} search results"
+        )
         ctx.emit.progress(self.name, 1.0, "Search demo complete")
         return AgentResult(
             records_processed=len(result["results"]),
@@ -51,7 +55,9 @@ class ScrapeAgent(Agent):
     async def execute(self, ctx: AgentContext) -> AgentResult:
         ctx.raise_if_cancelled()
         url = str(ctx.config.get("scrape_url", "https://example.com"))
-        result = await ctx.tools.web_scrape.call(ctx, url=url, max_chars=1500, max_links=6)
+        result = await ctx.tools.web_scrape.call(
+            ctx, url=url, max_chars=1500, max_links=6
+        )
         ctx.state[self.name] = result
         ctx.emit.log(self.name, "info", f"Scraped {result['title'] or url}")
         ctx.emit.progress(self.name, 1.0, "Scrape demo complete")
@@ -69,7 +75,9 @@ class LlmAgent(Agent):
     async def execute(self, ctx: AgentContext) -> AgentResult:
         ctx.raise_if_cancelled()
         provider = str(ctx.config.get("llm_provider", "openrouter"))
-        model = str(ctx.config.get("llm_model", "nvidia/nemotron-3-super-120b-a12b:free"))
+        model = str(
+            ctx.config.get("llm_model", "nvidia/nemotron-3-super-120b-a12b:free")
+        )
         if provider == "openrouter" and model == "openrouter/auto":
             model = "nvidia/nemotron-3-super-120b-a12b:free"
         if provider == "anthropic" and model in {

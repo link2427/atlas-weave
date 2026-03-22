@@ -20,7 +20,9 @@ class EvidenceResult:
 # ── Wikipedia ──────────────────────────────────────────────────────────────────
 
 _WIKI_API = "https://en.wikipedia.org/w/api.php"
-_WIKI_HEADERS = {"User-Agent": "AtlasWeave/0.1 (satellite enrichment pipeline; https://github.com/atlas-weave)"}
+_WIKI_HEADERS = {
+    "User-Agent": "AtlasWeave/0.1 (satellite enrichment pipeline; https://github.com/atlas-weave)"
+}
 
 _CONSTELLATION_ARTICLES: dict[str, str] = {
     "STARLINK": "Starlink",
@@ -73,7 +75,11 @@ def _build_wikipedia_titles(record: dict[str, Any]) -> list[str]:
     # Check constellation patterns — strip numeric suffix
     base = re.sub(r"[-\s]\d+$", "", upper).strip()
     for prefix, article in _CONSTELLATION_ARTICLES.items():
-        if base == prefix or upper.startswith(prefix + "-") or upper.startswith(prefix + " "):
+        if (
+            base == prefix
+            or upper.startswith(prefix + "-")
+            or upper.startswith(prefix + " ")
+        ):
             if article not in titles:
                 titles.append(article)
             break
@@ -219,7 +225,9 @@ def _clean_wikitext(raw: str) -> str:
     return cleaned
 
 
-async def fetch_wikipedia_evidence(ctx: AgentContext, record: dict[str, Any]) -> EvidenceResult:
+async def fetch_wikipedia_evidence(
+    ctx: AgentContext, record: dict[str, Any]
+) -> EvidenceResult:
     """Fetch satellite data from Wikipedia using the MediaWiki API."""
     titles = _build_wikipedia_titles(record)
     if not titles:
@@ -302,7 +310,9 @@ async def fetch_wikipedia_evidence(ctx: AgentContext, record: dict[str, Any]) ->
                 success=True,
             )
         except Exception as exc:  # noqa: BLE001
-            ctx.emit.log(node_id, "warning", f"Wikipedia fetch failed for '{title}': {exc}")
+            ctx.emit.log(
+                node_id, "warning", f"Wikipedia fetch failed for '{title}': {exc}"
+            )
             continue
 
     return EvidenceResult(source_name="wikipedia")
@@ -333,12 +343,16 @@ def _gunter_url_candidates(record: dict[str, Any]) -> list[str]:
     return urls[:2]
 
 
-async def fetch_gunter_evidence(ctx: AgentContext, record: dict[str, Any]) -> EvidenceResult:
+async def fetch_gunter_evidence(
+    ctx: AgentContext, record: dict[str, Any]
+) -> EvidenceResult:
     """Scrape satellite data from Gunter's Space Page."""
     urls = _gunter_url_candidates(record)
     for url in urls:
         try:
-            scraped = await ctx.tools.web_scrape.call(ctx, url=url, max_chars=4000, max_links=6)
+            scraped = await ctx.tools.web_scrape.call(
+                ctx, url=url, max_chars=4000, max_links=6
+            )
             text = str(scraped.get("text") or "")
             if len(text) > 100:
                 return EvidenceResult(
@@ -356,7 +370,9 @@ async def fetch_gunter_evidence(ctx: AgentContext, record: dict[str, Any]) -> Ev
 # ── N2YO ───────────────────────────────────────────────────────────────────────
 
 
-async def fetch_n2yo_evidence(ctx: AgentContext, record: dict[str, Any]) -> EvidenceResult:
+async def fetch_n2yo_evidence(
+    ctx: AgentContext, record: dict[str, Any]
+) -> EvidenceResult:
     """Scrape satellite info from N2YO by NORAD ID."""
     norad_id = record.get("norad_id")
     if not norad_id:
@@ -364,7 +380,9 @@ async def fetch_n2yo_evidence(ctx: AgentContext, record: dict[str, Any]) -> Evid
 
     url = f"https://www.n2yo.com/satellite/?s={norad_id}"
     try:
-        scraped = await ctx.tools.web_scrape.call(ctx, url=url, max_chars=3000, max_links=6)
+        scraped = await ctx.tools.web_scrape.call(
+            ctx, url=url, max_chars=3000, max_links=6
+        )
         text = str(scraped.get("text") or "")
         if len(text) > 100:
             return EvidenceResult(
@@ -393,7 +411,11 @@ async def gather_evidence(
     constellation_key = _constellation_key(record)
 
     # Check shared evidence cache for constellation satellites
-    if shared_evidence is not None and constellation_key and constellation_key in shared_evidence:
+    if (
+        shared_evidence is not None
+        and constellation_key
+        and constellation_key in shared_evidence
+    ):
         return shared_evidence[constellation_key]
 
     # Run targeted sources concurrently
@@ -401,7 +423,9 @@ async def gather_evidence(
     gunter_task = asyncio.create_task(fetch_gunter_evidence(ctx, record))
     n2yo_task = asyncio.create_task(fetch_n2yo_evidence(ctx, record))
 
-    results_raw = await asyncio.gather(wiki_task, gunter_task, n2yo_task, return_exceptions=True)
+    results_raw = await asyncio.gather(
+        wiki_task, gunter_task, n2yo_task, return_exceptions=True
+    )
     evidence: list[EvidenceResult] = []
     for result in results_raw:
         if isinstance(result, EvidenceResult) and result.success:
@@ -409,12 +433,18 @@ async def gather_evidence(
 
     # If no targeted source found data, fall back to web search
     if not evidence:
-        fallback = await _fallback_web_search(ctx, record, missing_fields, conflict_fields)
+        fallback = await _fallback_web_search(
+            ctx, record, missing_fields, conflict_fields
+        )
         if fallback.success:
             evidence.append(fallback)
 
     # Cache results for constellation members
-    if shared_evidence is not None and constellation_key and constellation_key not in shared_evidence:
+    if (
+        shared_evidence is not None
+        and constellation_key
+        and constellation_key not in shared_evidence
+    ):
         shared_evidence[constellation_key] = evidence
 
     return evidence
@@ -436,7 +466,9 @@ async def _fallback_web_search(
         results = list(search.get("results") or [])
         if results:
             url = str(results[0]["url"])
-            scraped = await ctx.tools.web_scrape.call(ctx, url=url, max_chars=3000, max_links=6)
+            scraped = await ctx.tools.web_scrape.call(
+                ctx, url=url, max_chars=3000, max_links=6
+            )
             text = str(scraped.get("text") or "")
             if len(text) > 100:
                 return EvidenceResult(
@@ -489,7 +521,14 @@ def _build_search_query(
     if any(f.startswith("purpose") or f == "mission_class" for f in missing_fields):
         metadata_terms.append("mission purpose")
     if any(
-        f in {"manufacturer_name", "bus_platform", "dry_mass_kg", "design_life_years", "program_name"}
+        f
+        in {
+            "manufacturer_name",
+            "bus_platform",
+            "dry_mass_kg",
+            "design_life_years",
+            "program_name",
+        }
         for f in missing_fields
     ):
         metadata_terms.append("manufacturer specifications")

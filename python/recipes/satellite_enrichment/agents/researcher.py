@@ -9,8 +9,15 @@ from typing import Any
 from atlas_weave import Agent, AgentContext, AgentResult
 from atlas_weave.tools.llm_tool import LLMTool
 from recipes.satellite_enrichment import db
-from recipes.satellite_enrichment.research_sources import EvidenceResult, gather_evidence
-from recipes.satellite_enrichment.schema import LLM_ALLOWED_FIELDS, compute_completeness, utc_now
+from recipes.satellite_enrichment.research_sources import (
+    EvidenceResult,
+    gather_evidence,
+)
+from recipes.satellite_enrichment.schema import (
+    LLM_ALLOWED_FIELDS,
+    compute_completeness,
+    utc_now,
+)
 
 
 # Large constellations where all members share the same operator/manufacturer/purpose.
@@ -40,12 +47,16 @@ class ResearchSwarm(Agent):
         output_db_path = str(ctx.state["satellite_enrichment"]["db_path"])
         if not bool(ctx.config.get("enable_llm_research", True)):
             ctx.emit.progress(self.name, 1.0, "LLM research disabled")
-            return AgentResult(summary={"skipped": True, "reason": "LLM research disabled by config"})
+            return AgentResult(
+                summary={"skipped": True, "reason": "LLM research disabled by config"}
+            )
 
         max_research_records = int(ctx.config.get("max_research_records", 500))
         if max_research_records <= 0:
             ctx.emit.progress(self.name, 1.0, "LLM research disabled")
-            return AgentResult(summary={"skipped": True, "reason": "max_research_records is 0"})
+            return AgentResult(
+                summary={"skipped": True, "reason": "max_research_records is 0"}
+            )
 
         provider = str(ctx.config.get("llm_provider", "openrouter"))
         model = str(ctx.config.get("llm_model", "anthropic/claude-haiku-4-5-20251001"))
@@ -58,7 +69,9 @@ class ResearchSwarm(Agent):
                 "accepted_llm_records": 0,
                 "llm_research_status": "skipped_missing_credentials",
             }
-            ctx.emit.progress(self.name, 1.0, "LLM research skipped: missing credentials")
+            ctx.emit.progress(
+                self.name, 1.0, "LLM research skipped: missing credentials"
+            )
             return AgentResult(
                 summary={
                     "skipped": True,
@@ -69,15 +82,21 @@ class ResearchSwarm(Agent):
             )
 
         # Constellations to skip research for — these have thousands of identical satellites
-        skip_constellations = set(ctx.config.get("skip_research_constellations", _DEFAULT_SKIP_CONSTELLATIONS))
+        skip_constellations = set(
+            ctx.config.get("skip_research_constellations", _DEFAULT_SKIP_CONSTELLATIONS)
+        )
 
-        queue_rows = db.fetch_stage_payloads(output_db_path, "research_queue", ctx.run_id)
+        queue_rows = db.fetch_stage_payloads(
+            output_db_path, "research_queue", ctx.run_id
+        )
         all_payloads = [row["payload"] for row in queue_rows]
         skipped_count = 0
         if skip_constellations:
             filtered = []
             for payload in all_payloads:
-                constellation = str(payload.get("record", {}).get("constellation_name") or "").lower()
+                constellation = str(
+                    payload.get("record", {}).get("constellation_name") or ""
+                ).lower()
                 if constellation in skip_constellations:
                     skipped_count += 1
                 else:
@@ -101,7 +120,9 @@ class ResearchSwarm(Agent):
                 "accepted_llm_records": 0,
                 "llm_research_status": "completed",
             }
-            ctx.emit.log(self.name, "info", "Research swarm had no candidates to process.")
+            ctx.emit.log(
+                self.name, "info", "Research swarm had no candidates to process."
+            )
             ctx.emit.progress(self.name, 1.0, "Research swarm complete")
             return AgentResult(
                 summary={
@@ -117,8 +138,12 @@ class ResearchSwarm(Agent):
                 }
             )
 
-        worker_limit = _bounded_concurrency(ctx.config.get("research_concurrency"), len(candidates), 12)
-        llm_limit = _bounded_concurrency(ctx.config.get("llm_concurrency"), len(candidates), 4)
+        worker_limit = _bounded_concurrency(
+            ctx.config.get("research_concurrency"), len(candidates), 12
+        )
+        llm_limit = _bounded_concurrency(
+            ctx.config.get("llm_concurrency"), len(candidates), 4
+        )
         worker_semaphore = asyncio.Semaphore(worker_limit)
         llm_semaphore = asyncio.Semaphore(llm_limit)
         confidence_threshold = float(ctx.config.get("llm_confidence_threshold", 0.7))
@@ -138,7 +163,9 @@ class ResearchSwarm(Agent):
                 }
                 for plan in category_plans.values()
             ],
-            edges=[("research_swarm", plan["node_id"]) for plan in category_plans.values()],
+            edges=[
+                ("research_swarm", plan["node_id"]) for plan in category_plans.values()
+            ],
         )
         for plan in category_plans.values():
             ctx.emit.node_started(str(plan["node_id"]))
@@ -212,11 +239,15 @@ class ResearchSwarm(Agent):
                 failed_workers += 1
             else:
                 completed_workers += 1
-            provider_attempts = json.loads(outcome.result_row["payload_json"]).get("provider_attempts", [])
+            provider_attempts = json.loads(outcome.result_row["payload_json"]).get(
+                "provider_attempts", []
+            )
             for attempt in provider_attempts:
                 provider_name = attempt.get("provider")
                 if isinstance(provider_name, str):
-                    provider_breakdown[provider_name] = provider_breakdown.get(provider_name, 0) + 1
+                    provider_breakdown[provider_name] = (
+                        provider_breakdown.get(provider_name, 0) + 1
+                    )
             bucket = category_state[outcome.category_node_id]
             bucket["completed"] += 1
             if outcome.accepted:
@@ -254,7 +285,9 @@ class ResearchSwarm(Agent):
 
         if updated_satellites:
             db.upsert_satellites(output_db_path, updated_satellites)
-        db.replace_stage_rows(output_db_path, "research_results", ctx.run_id, research_results)
+        db.replace_stage_rows(
+            output_db_path, "research_results", ctx.run_id, research_results
+        )
 
         llm_status = "completed_with_errors" if error_count else "completed"
         ctx.state["_run_summary"] = {
@@ -336,7 +369,9 @@ async def _run_worker(
         )
 
         if not evidence_results:
-            worker_ctx.emit.log(category_node_id, "warning", f"No evidence found for {label}")
+            worker_ctx.emit.log(
+                category_node_id, "warning", f"No evidence found for {label}"
+            )
             record["llm_research_status"] = "no_evidence"
             record["updated_at_utc"] = utc_now()
             return WorkerOutcome(
@@ -354,7 +389,9 @@ async def _run_worker(
                     "status": "no_evidence",
                     "payload_json": json.dumps(
                         {
-                            "evidence_sources": [ev.source_name for ev in evidence_results],
+                            "evidence_sources": [
+                                ev.source_name for ev in evidence_results
+                            ],
                             "accepted": False,
                             "missing_fields": missing_fields,
                             "conflict_fields": conflict_fields,
@@ -415,7 +452,9 @@ async def _run_worker(
                     "status": "accepted",
                     "payload_json": json.dumps(
                         {
-                            "evidence_sources": [ev.source_name for ev in evidence_results],
+                            "evidence_sources": [
+                                ev.source_name for ev in evidence_results
+                            ],
                             "structured_fields": structured_fields,
                             "prefilled_fields": prefilled_fields,
                             "accepted": True,
@@ -479,7 +518,9 @@ async def _run_worker(
                         "status": "accepted",
                         "payload_json": json.dumps(
                             {
-                                "evidence_sources": [ev.source_name for ev in evidence_results],
+                                "evidence_sources": [
+                                    ev.source_name for ev in evidence_results
+                                ],
                                 "prefilled_fields": prefilled_fields,
                                 "llm_error": str(error),
                                 "accepted": True,
@@ -510,7 +551,9 @@ async def _run_worker(
                     "status": "error",
                     "payload_json": json.dumps(
                         {
-                            "evidence_sources": [ev.source_name for ev in evidence_results],
+                            "evidence_sources": [
+                                ev.source_name for ev in evidence_results
+                            ],
                             "error": str(error),
                             "missing_fields": missing_fields,
                             "conflict_fields": conflict_fields,
@@ -528,7 +571,9 @@ async def _run_worker(
         accepted = confidence >= confidence_threshold and bool(validated_fields)
 
         # Merge LLM fields with pre-filled structured fields
-        all_accepted_fields = dict(zip(prefilled_fields, [record[f] for f in prefilled_fields]))
+        all_accepted_fields = dict(
+            zip(prefilled_fields, [record[f] for f in prefilled_fields])
+        )
         if accepted:
             for field_name, value in validated_fields.items():
                 if record.get(field_name) in {None, ""}:
@@ -537,11 +582,15 @@ async def _run_worker(
 
         total_accepted = bool(all_accepted_fields)
         if total_accepted:
-            evidence_urls = list(llm_payload.get("evidence_urls") or []) + all_evidence_urls
+            evidence_urls = (
+                list(llm_payload.get("evidence_urls") or []) + all_evidence_urls
+            )
             record["source_llm"] = json.dumps(
                 {
                     "fields": sorted(all_accepted_fields.keys()),
-                    "confidence": max(confidence, 0.95) if prefilled_fields else confidence,
+                    "confidence": max(confidence, 0.95)
+                    if prefilled_fields
+                    else confidence,
                     "evidence_urls": evidence_urls,
                 },
                 separators=(",", ":"),
@@ -605,7 +654,9 @@ async def _call_llm_with_heartbeat(
     ordinal: int,
     total: int,
 ) -> dict[str, Any]:
-    prompt = _build_llm_prompt(record, missing_fields, conflict_fields, evidence_results, label)
+    prompt = _build_llm_prompt(
+        record, missing_fields, conflict_fields, evidence_results, label
+    )
     task = asyncio.create_task(
         llm_tool.call(
             ctx,
@@ -675,19 +726,43 @@ def _llm_schema() -> dict[str, Any]:
 
 
 _ORBITAL_FIELDS = {
-    "tle_line1", "tle_line2", "inclination_deg", "eccentricity", "period_min",
-    "mean_motion_rev_per_day", "semi_major_axis_km", "perigee_km", "apogee_km",
-    "altitude_km", "raan_deg", "arg_perigee_deg", "mean_anomaly_deg", "epoch_utc",
-    "source_space_track", "source_discos", "source_ucs", "source_celestrak",
-    "source_llm", "data_completeness_pct", "enrichment_confidence",
-    "created_at_utc", "updated_at_utc", "last_verified_at_utc",
-    "llm_research_status", "radar_cross_section_m2", "alternate_names_json",
+    "tle_line1",
+    "tle_line2",
+    "inclination_deg",
+    "eccentricity",
+    "period_min",
+    "mean_motion_rev_per_day",
+    "semi_major_axis_km",
+    "perigee_km",
+    "apogee_km",
+    "altitude_km",
+    "raan_deg",
+    "arg_perigee_deg",
+    "mean_anomaly_deg",
+    "epoch_utc",
+    "source_space_track",
+    "source_discos",
+    "source_ucs",
+    "source_celestrak",
+    "source_llm",
+    "data_completeness_pct",
+    "enrichment_confidence",
+    "created_at_utc",
+    "updated_at_utc",
+    "last_verified_at_utc",
+    "llm_research_status",
+    "radar_cross_section_m2",
+    "alternate_names_json",
 }
 
 
 def _slim_record(record: dict[str, Any]) -> dict[str, Any]:
     """Strip orbital/TLE/stage fields — the LLM doesn't need them."""
-    return {k: v for k, v in record.items() if k not in _ORBITAL_FIELDS and v not in {None, ""}}
+    return {
+        k: v
+        for k, v in record.items()
+        if k not in _ORBITAL_FIELDS and v not in {None, ""}
+    }
 
 
 def _build_llm_prompt(
@@ -702,8 +777,12 @@ def _build_llm_prompt(
     slim = _slim_record(record)
     slim_json = json.dumps(slim, indent=2, default=str)
 
-    missing_bullets = "\n".join(f"- {f}" for f in missing_fields) if missing_fields else "- (none)"
-    conflict_bullets = "\n".join(f"- {f}" for f in conflict_fields) if conflict_fields else "- (none)"
+    missing_bullets = (
+        "\n".join(f"- {f}" for f in missing_fields) if missing_fields else "- (none)"
+    )
+    conflict_bullets = (
+        "\n".join(f"- {f}" for f in conflict_fields) if conflict_fields else "- (none)"
+    )
 
     evidence_sections: list[str] = []
     for ev in evidence_results:
@@ -713,7 +792,11 @@ def _build_llm_prompt(
             text = ev.scraped_text[:1500]
             evidence_sections.append(f"### {ev.source_name.title()} ({urls})\n{text}")
 
-    evidence_text = "\n\n".join(evidence_sections) if evidence_sections else "(no evidence available)"
+    evidence_text = (
+        "\n\n".join(evidence_sections)
+        if evidence_sections
+        else "(no evidence available)"
+    )
 
     return f"""You are enriching satellite metadata for **{label}** (NORAD {norad_id}).
 
@@ -739,8 +822,14 @@ Include evidence_urls for each source you used."""
 
 # CelesTrak meta-groups that shouldn't be used as categories — they're aggregation groups, not classifications.
 _META_CELESTRAK_GROUPS = {
-    "active", "visual", "analyst", "tle-new", "last-30-days",
-    "active-geo", "geo-protected", "other",
+    "active",
+    "visual",
+    "analyst",
+    "tle-new",
+    "last-30-days",
+    "active-geo",
+    "geo-protected",
+    "other",
 }
 
 # Mapping from CelesTrak group slugs to human-readable labels
@@ -824,7 +913,7 @@ def _category_label(candidate: dict[str, Any]) -> str:
     if key == "rocket_bodies":
         return "Rocket Bodies"
     if key.startswith("celestrak_"):
-        slug = key[len("celestrak_"):]
+        slug = key[len("celestrak_") :]
         # Check the label map
         for group_slug, label in _CELESTRAK_GROUP_LABELS.items():
             if _slugify(group_slug) == slug:
@@ -832,7 +921,7 @@ def _category_label(candidate: dict[str, Any]) -> str:
         # Fall back to titleizing the slug
         return slug.replace("_", " ").title()
     if key.startswith("other_"):
-        orbit_class = key[len("other_"):].upper()
+        orbit_class = key[len("other_") :].upper()
         return f"Other {orbit_class}"
     return key.replace("_", " ").title()
 
