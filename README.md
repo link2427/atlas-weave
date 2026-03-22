@@ -240,4 +240,4 @@ The pipeline produces a SQLite database with 50+ fields per satellite, targeting
 
 ## License
 
-MIT
+[PolyForm Noncommercial 1.0.0](LICENSE) — free for personal, research, and non-commercial use. Commercial use is not permitted.
