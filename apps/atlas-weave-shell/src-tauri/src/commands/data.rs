@@ -218,6 +218,7 @@ pub fn get_recipe_db_tables(db_path: String) -> AppResult<Vec<TableInfoDto>> {
     Ok(tables)
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn query_recipe_db(
     db_path: String,

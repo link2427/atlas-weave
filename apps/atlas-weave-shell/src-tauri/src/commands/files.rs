@@ -1,3 +1,4 @@
+#[cfg(target_os = "windows")]
 use std::process::Command;
 
 use crate::{AppError, AppResult};
@@ -35,7 +36,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         if selected.is_empty() {
             return Ok(None);
         }
-        return Ok(Some(selected));
+        Ok(Some(selected))
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -78,7 +79,7 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         if selected.is_empty() {
             return Ok(None);
         }
-        return Ok(Some(selected));
+        Ok(Some(selected))
     }
 
     #[cfg(not(target_os = "windows"))]

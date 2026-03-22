@@ -73,7 +73,7 @@ pub fn create_schedule(
     let next_run_at = compute_next_fire(&cron_expression);
     let config_json = config
         .as_ref()
-        .map(|v| serde_json::to_string(v))
+        .map(serde_json::to_string)
         .transpose()?;
 
     database.insert_schedule(
@@ -111,7 +111,7 @@ pub fn update_schedule(
 
     let config_json = config
         .as_ref()
-        .map(|v| serde_json::to_string(v))
+        .map(serde_json::to_string)
         .transpose()?;
 
     // Determine the effective cron expression for recomputing next_run_at

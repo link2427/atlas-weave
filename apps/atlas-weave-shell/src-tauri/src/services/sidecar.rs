@@ -16,6 +16,7 @@ use super::{
     run_manager::{ActiveRunHandle, RunManager},
 };
 
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_run(
     app: AppHandle,
     database: Database,
