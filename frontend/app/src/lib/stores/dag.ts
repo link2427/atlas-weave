@@ -333,6 +333,12 @@ function createDagStore() {
         ...state,
         selectedNodeId: nodeId
       }));
+    },
+    deselectNode() {
+      update((state) => ({
+        ...state,
+        selectedNodeId: null
+      }));
     }
   };
 }

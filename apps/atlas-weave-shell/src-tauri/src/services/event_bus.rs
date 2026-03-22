@@ -1,10 +1,12 @@
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_notification::NotificationExt;
 
 use crate::{db::Database, AppResult};
 
 pub fn publish_payload(app: &AppHandle, database: &Database, payload: Value) -> AppResult<()> {
     database.persist_event(&payload)?;
+    maybe_notify(app, &payload);
     app.emit("atlas-weave:event", payload)?;
     Ok(())
 }
@@ -44,6 +46,38 @@ pub fn publish_stderr(
             "message": message
         }),
     )
+}
+
+fn maybe_notify(app: &AppHandle, payload: &Value) {
+    let event_type = payload.get("type").and_then(Value::as_str).unwrap_or("");
+    let run_id = payload.get("run_id").and_then(Value::as_str).unwrap_or("");
+    let short_id = &run_id[..run_id.len().min(8)];
+
+    let (title, body) = match event_type {
+        "run_completed" => (
+            "Run Complete",
+            format!("Run {short_id}… finished successfully"),
+        ),
+        "run_failed" => {
+            let err = payload
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("Unknown error");
+            ("Run Failed", format!("Run {short_id}…: {err}"))
+        }
+        "run_cancelled" => (
+            "Run Cancelled",
+            format!("Run {short_id}… was cancelled"),
+        ),
+        _ => return,
+    };
+
+    let _ = app
+        .notification()
+        .builder()
+        .title(format!("Atlas Weave: {title}"))
+        .body(body)
+        .show();
 }
 
 /// Extract the Python log level from a stderr line.

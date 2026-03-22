@@ -107,6 +107,10 @@ export function getRunHistory(
   });
 }
 
+export function retryFailedNodes(sourceRunId: string): Promise<StartRunResponse> {
+  return invoke<StartRunResponse>('retry_failed_nodes', { sourceRunId });
+}
+
 export function getRunEvents(
   runId: string,
   nodeId?: string,

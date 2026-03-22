@@ -4,6 +4,36 @@
 
 @layer base {
   :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 99%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 99%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 174 58% 30%;
+    --primary-foreground: 166 100% 93%;
+    --secondary: 214 20% 94%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 214 20% 94%;
+    --muted-foreground: 215 20% 40%;
+    --accent: 214 20% 94%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 86% 97%;
+    --border: 214 20% 88%;
+    --input: 214 20% 88%;
+    --ring: 174 58% 30%;
+    --radius: 0.75rem;
+
+    --status-pending: 215 20% 55%;
+    --status-running: 168 80% 40%;
+    --status-completed: 199 89% 40%;
+    --status-failed: 350 89% 50%;
+    --status-skipped: 45 93% 40%;
+    --status-cancelled: 27 96% 50%;
+  }
+
+  .dark {
     --background: 222 47% 8%;
     --foreground: 214 100% 96%;
     --card: 222 47% 8%;
@@ -41,12 +71,17 @@
 }
 
 :root {
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+}
+
+.dark {
   color: #edf4ff;
   background:
     radial-gradient(circle at top left, rgba(13, 148, 136, 0.28), transparent 28%),
     radial-gradient(circle at top right, rgba(251, 146, 60, 0.18), transparent 24%),
     linear-gradient(160deg, #07101d 0%, #0c1628 52%, #111f35 100%);
-  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
 }
 
 html,

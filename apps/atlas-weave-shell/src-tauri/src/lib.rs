@@ -8,7 +8,7 @@ use commands::{
     data::{export_csv, get_recipe_db_tables, query_recipe_db, resolve_recipe_db_path},
     files::{pick_csv_file, pick_save_csv_file},
     recipes::{get_recipe_detail, list_recipes},
-    runs::{cancel_run, get_run, get_run_events, get_run_history, start_run},
+    runs::{cancel_run, get_run, get_run_events, get_run_history, retry_failed_nodes, start_run},
     schedules::{create_schedule, delete_schedule, get_schedules, update_schedule},
     settings::{get_credentials, save_credentials},
 };
@@ -78,6 +78,7 @@ impl From<tauri_plugin_stronghold::stronghold::Error> for AppError {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let repo_root = services::paths::repo_root()?;
             let data_dir = repo_root.join(".atlas-weave");
@@ -107,6 +108,7 @@ pub fn run() {
             get_run_events,
             get_run_history,
             cancel_run,
+            retry_failed_nodes,
             pick_csv_file,
             pick_save_csv_file,
             get_recipe_db_tables,

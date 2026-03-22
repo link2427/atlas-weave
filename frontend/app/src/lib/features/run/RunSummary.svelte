@@ -11,7 +11,7 @@
   export let status: RunStatus | 'idle' = 'idle';
   export let cancelling = false;
 
-  const dispatch = createEventDispatcher<{ cancel: undefined }>();
+  const dispatch = createEventDispatcher<{ cancel: undefined; retry: undefined }>();
 
   type SummaryData = {
     toolCalls: number;
@@ -109,11 +109,18 @@
       </div>
     </div>
 
-    {#if status === 'running'}
-      <Button variant="destructive" disabled={cancelling} onclick={() => dispatch('cancel')}>
-        {cancelling ? 'Cancelling...' : 'Cancel Run'}
-      </Button>
-    {/if}
+    <div class="flex gap-2">
+      {#if status === 'running'}
+        <Button variant="destructive" disabled={cancelling} onclick={() => dispatch('cancel')}>
+          {cancelling ? 'Cancelling...' : 'Cancel Run'}
+        </Button>
+      {/if}
+      {#if status === 'failed'}
+        <Button variant="outline" onclick={() => dispatch('retry')}>
+          Retry Failed Nodes
+        </Button>
+      {/if}
+    </div>
   </div>
 
   {#if run}

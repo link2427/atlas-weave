@@ -24,6 +24,7 @@ pub async fn spawn_run(
     run_id: String,
     config: Value,
     env_vars: HashMap<String, String>,
+    resume_state: Option<HashMap<String, String>>,
 ) -> AppResult<()> {
     let repo_root = paths::repo_root()?;
     let python_dir = repo_root.join("python");
@@ -67,12 +68,16 @@ pub async fn spawn_run(
         .ok_or_else(|| anyhow!("python runner stderr pipe was not available"))?;
     let child = Arc::new(Mutex::new(child));
 
-    let start_command = serde_json::to_string(&json!({
+    let mut start_cmd = json!({
         "type": "start_run",
         "run_id": run_id,
         "recipe": recipe,
         "config": config,
-    }))?;
+    });
+    if let Some(state) = resume_state {
+        start_cmd["resume_state"] = json!(state);
+    }
+    let start_command = serde_json::to_string(&start_cmd)?;
     stdin.write_all(start_command.as_bytes()).await?;
     stdin.write_all(b"\n").await?;
     stdin.flush().await?;

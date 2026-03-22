@@ -269,15 +269,15 @@ Final polish: cost tracking, dark/light theme, notifications, error recovery, an
 
 ### Checklist
 
-- [ ] Add cumulative cost tracking per run (LLM token costs, displayed in run summary)
-- [ ] Implement dark/light theme toggle (Tailwind dark mode)
-- [ ] Desktop notifications on run completion/failure via Tauri notification plugin
-- [ ] Error recovery: "Retry Failed Nodes" button that re-runs only failed/skipped agents from a completed run
-- [ ] Node detail tools tab: expandable HTTP/LLM call details with full request/response
-- [ ] Improve DAG viewer: mini-map for large DAGs, zoom controls, auto-fit on recipe load
-- [ ] Loading states for all async operations
-- [ ] Empty states for first-launch experience (no runs yet, no recipes configured)
-- [ ] Keyboard shortcuts: `Ctrl+R` to start run, `Escape` to close panels
+- [x] Add cumulative cost tracking per run (LLM token costs, displayed in run summary)
+- [x] Implement dark/light theme toggle (Tailwind dark mode)
+- [x] Desktop notifications on run completion/failure via Tauri notification plugin
+- [x] Error recovery: "Retry Failed Nodes" button that re-runs only failed/skipped agents from a completed run
+- [x] Node detail tools tab: expandable HTTP/LLM call details with full request/response
+- [x] Improve DAG viewer: mini-map for large DAGs, zoom controls, auto-fit on recipe load
+- [x] Loading states for all async operations
+- [x] Empty states for first-launch experience (no runs yet, no recipes configured)
+- [x] Keyboard shortcuts: `Ctrl+R` to start run, `Escape` to close panels
 
 ### Acceptance Criteria
 1. Cost tracking shows estimated spend per run

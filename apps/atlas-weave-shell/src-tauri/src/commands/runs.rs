@@ -111,6 +111,7 @@ pub async fn trigger_run(
     credentials: &Arc<CredentialStore>,
     recipe_name: &str,
     config: Option<Value>,
+    resume_state: Option<HashMap<String, String>>,
 ) -> AppResult<String> {
     let run_id = Uuid::new_v4().to_string();
     let recipe_record = database
@@ -160,6 +161,7 @@ pub async fn trigger_run(
             run_id_for_task.clone(),
             requested_config,
             env_vars,
+            resume_state,
         )
         .await
         {
@@ -188,7 +190,7 @@ pub async fn start_run(
     let database = state.database.as_ref().clone();
     let run_manager = state.run_manager.clone();
     let credentials = state.credentials.clone();
-    let run_id = trigger_run(&app, &database, &run_manager, &credentials, &recipe, config).await?;
+    let run_id = trigger_run(&app, &database, &run_manager, &credentials, &recipe, config, None).await?;
     Ok(StartRunResponse {
         run_id,
         status: "running".to_string(),
@@ -399,6 +401,43 @@ fn secret_env_var(key: &str) -> String {
             }
         })
         .collect()
+}
+
+#[tauri::command]
+pub async fn retry_failed_nodes(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    source_run_id: String,
+) -> AppResult<StartRunResponse> {
+    let database = state.database.as_ref().clone();
+    let run_manager = state.run_manager.clone();
+    let credentials = state.credentials.clone();
+    let source_run = database
+        .get_run(&source_run_id)?
+        .ok_or_else(|| AppError::Message("source run not found".into()))?;
+
+    let resume_state: HashMap<String, String> = source_run
+        .nodes
+        .iter()
+        .map(|n| (n.node_id.clone(), n.status.clone()))
+        .collect();
+
+    let config_value = Some(source_run.config.clone());
+    let run_id = trigger_run(
+        &app,
+        &database,
+        &run_manager,
+        &credentials,
+        &source_run.recipe_name,
+        config_value,
+        Some(resume_state),
+    )
+    .await?;
+
+    Ok(StartRunResponse {
+        run_id,
+        status: "running".to_string(),
+    })
 }
 
 fn merge_run_graph(recipe_dag: &Value, run: &crate::db::RunRecord) -> RunGraphDto {

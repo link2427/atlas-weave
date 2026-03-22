@@ -9,7 +9,7 @@
   import { Card, CardHeader, CardTitle, CardContent } from '$lib/components/ui/card';
   import { Skeleton } from '$lib/components/ui/skeleton';
   import { getRecipeDetail } from '$lib/api/tauri/recipes';
-  import { cancelRun, getRun, getRunEvents, getRunHistory, type RunDetail, type RunHistoryItem } from '$lib/api/tauri/runs';
+  import { cancelRun, getRun, getRunEvents, getRunHistory, retryFailedNodes, type RunDetail, type RunHistoryItem } from '$lib/api/tauri/runs';
   import DagViewer from '$lib/features/dag/DagViewer.svelte';
   import NodeDetail from '$lib/features/dag/NodeDetail.svelte';
   import RunLogViewer from '$lib/features/dag/RunLogViewer.svelte';
@@ -172,6 +172,22 @@
     }
   }
 
+  function handleKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      dagStore.deselectNode();
+    }
+  }
+
+  async function handleRetry(): Promise<void> {
+    if (!runDetail) return;
+    try {
+      const response = await retryFailedNodes(runDetail.id);
+      await goto(`/run/${response.runId}`);
+    } catch (error) {
+      loadError = error instanceof Error ? error.message : 'Failed to retry failed nodes.';
+    }
+  }
+
   function asAtlasWeaveEvent(payload: Record<string, unknown>): AtlasWeaveEvent {
     return payload as AtlasWeaveEvent;
   }
@@ -188,6 +204,8 @@
     return 'pending';
   }
 </script>
+
+<svelte:window on:keydown={handleKeydown} />
 
 <svelte:head>
   <title>Atlas Weave Run</title>
@@ -265,6 +283,7 @@
               status={eventState.status !== 'idle' ? eventState.status : runDetail?.status ?? 'idle'}
               {cancelling}
               on:cancel={handleCancel}
+              on:retry={handleRetry}
             />
 
             <div class="rounded-lg border border-white/8 bg-white/[0.03] p-4">

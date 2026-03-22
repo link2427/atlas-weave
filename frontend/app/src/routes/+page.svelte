@@ -136,6 +136,21 @@
     await goto(`/run/${runId}`);
   }
 
+  function handleKeydown(event: KeyboardEvent): void {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'r') {
+      event.preventDefault();
+      if (
+        selectedRecipeDetail &&
+        !startingRun &&
+        !loadingRecipeDetail &&
+        secretRequirementsSatisfied(selectedRecipeDetail) &&
+        nonSecretRequiredSatisfied(selectedRecipeDetail)
+      ) {
+        void handleStartRun();
+      }
+    }
+  }
+
   function statusVariant(s: string): 'running' | 'completed' | 'failed' | 'cancelled' | 'pending' {
     if (s === 'completed') return 'completed';
     if (s === 'failed') return 'failed';
@@ -144,6 +159,8 @@
     return 'pending';
   }
 </script>
+
+<svelte:window on:keydown={handleKeydown} />
 
 <svelte:head>
   <title>Atlas Weave</title>
@@ -168,7 +185,8 @@
           <Skeleton class="h-20 w-full" />
         {:else if recipes.length === 0}
           <div class="rounded-lg border border-dashed border-white/10 bg-black/20 p-6 text-sm text-muted-foreground">
-            No recipes discovered under <code>python/recipes</code>.
+            <p class="font-medium text-foreground">Welcome to Atlas Weave</p>
+            <p class="mt-2">Add recipes under <code class="text-sea">python/recipes/</code> to get started.</p>
           </div>
         {:else}
           {#each recipes as recipe}

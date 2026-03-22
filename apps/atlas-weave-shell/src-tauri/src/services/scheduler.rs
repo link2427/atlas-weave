@@ -145,6 +145,7 @@ async fn tick(app: &tauri::AppHandle) {
             &credentials,
             &schedule.recipe_name,
             config,
+            None,
         )
         .await
         {

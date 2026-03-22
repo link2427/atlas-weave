@@ -195,6 +195,7 @@ async def run_recipe(
     run_id: str,
     config: dict[str, Any],
     protocol_mode: bool = False,
+    resume_state: dict[str, str] | None = None,
 ) -> None:
     recipe = _load_recipe(recipe_name)
     plan = build_execution_plan(recipe)
@@ -208,6 +209,12 @@ async def run_recipe(
     status_by_node = {name: "pending" for name in recipe.agent_type_map()}
     summary_by_node: dict[str, dict[str, Any]] = {}
     failure_messages: dict[str, str] = {}
+
+    if resume_state:
+        for node_id, prior_status in resume_state.items():
+            if prior_status == "completed" and node_id in status_by_node:
+                status_by_node[node_id] = "completed"
+                emitter.node_skipped(node_id, message="Retained from prior run")
 
     if protocol_mode:
         cancel_task = asyncio.create_task(_listen_for_cancel(run_id, cancellation))
@@ -329,12 +336,15 @@ def main() -> None:
 
     try:
         command = _command_from_args_or_stdin(args)
+        resume_state_raw = command.get("resume_state")
+        resume_state = dict(resume_state_raw) if isinstance(resume_state_raw, dict) else None
         asyncio.run(
             run_recipe(
                 recipe_name=str(command["recipe"]),
                 run_id=str(command["run_id"]),
                 config=dict(command.get("config", {})),
                 protocol_mode=not (args.recipe and args.run_id),
+                resume_state=resume_state,
             )
         )
     except Exception as error:  # noqa: BLE001
