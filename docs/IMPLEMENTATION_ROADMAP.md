@@ -288,6 +288,403 @@ Final polish: cost tracking, dark/light theme, notifications, error recovery, an
 
 ---
 
+## Phase 10 - Testing & CI/CD Foundation
+
+### Goal
+Establish a CI pipeline that gates PRs on lint, type-check, and unit tests across all three layers, plus E2E smoke tests that exercise the full Tauri-Python loop.
+
+### Checklist
+
+#### 10A: CI Pipeline
+- [ ] Create multi-job GitHub Actions workflow: `lint`, `test-python`, `test-rust`, `test-frontend`, `build`
+- [ ] `lint` job: `ruff check` + `ruff format --check`, `cargo clippy -- -D warnings` + `cargo fmt --check`, `svelte-check`
+- [ ] `test-python` job: `pytest python/tests/ -x --tb=short` with mocked network calls
+- [ ] `test-rust` job: `cargo test --workspace`
+- [ ] `test-frontend` job: run vitest for store/utility unit tests
+- [ ] `build` job: `cargo tauri build --debug` (depends on lint + test jobs)
+- [ ] Add branch protection requiring CI pass before merge to `main`
+
+#### 10B: Frontend Unit Tests
+- [ ] Add vitest + `@testing-library/svelte` to `frontend/app/`
+- [ ] Write tests for `dag.ts` store: `hydrate`, `applyEvent` for each event type, edge state derivation
+- [ ] Write tests for `events.ts` store: `push`, `setRun`, `getNodeEvents`
+- [ ] Write tests for `dag-layout.ts`: layout correctness for linear, diamond, and parallel shapes
+- [ ] Add `test` script to `frontend/app/package.json`
+
+#### 10C: E2E Smoke Test
+- [ ] Create `tests/e2e/` with a Playwright config targeting Tauri
+- [ ] Smoke test: launch app → verify recipe list → start `test_pipeline` → verify DAG renders → wait for completion → verify node statuses
+- [ ] Add E2E job to CI (`continue-on-error: true` initially)
+
+#### 10D: Python Test Coverage
+- [ ] Add `pytest-cov`, configure `--cov=atlas_weave --cov-fail-under=60`
+- [ ] Write tests for `runner.py`: resume state, cancellation mid-run, failure propagation
+- [ ] Write tests for `events.py`: verify each emitter method produces correct JSON shape
+
+### Acceptance Criteria
+1. PRs to `main` are blocked until lint + test + build pass
+2. `cargo test` runs 13+ Rust tests green
+3. `pytest` runs 20+ Python tests with coverage above 60%
+4. `vitest` runs 10+ frontend store/utility tests green
+5. E2E smoke test launches the app and completes a test run
+6. CI completes in under 10 minutes
+
+---
+
+## Phase 11 - Agent Framework Hardening
+
+### Goal
+Make the DAG runner production-ready with per-agent timeouts, automatic retries, conditional/branching execution, and structured inter-agent messaging replacing raw shared-state mutation.
+
+### Checklist
+
+#### 11A: Agent Timeouts & Retries
+- [ ] Add `timeout_seconds: ClassVar[int | None] = None` to `Agent` base class
+- [ ] Implement `asyncio.wait_for` wrapper in `_execute_agent` enforcing the timeout
+- [ ] Add `max_retries: ClassVar[int] = 0` and `retry_delay_seconds: ClassVar[float] = 1.0` to `Agent`
+- [ ] Implement retry loop in `_execute_agent` with exponential backoff, emitting `node_log` on each retry
+
+#### 11B: Conditional Execution
+- [ ] Extend `Recipe.edges` to accept `tuple[str, str, dict]` with an optional `{"when": "lambda state: ..."}` condition
+- [ ] Update `build_execution_plan` to store conditions on edges
+- [ ] Before executing an agent, evaluate incoming edge conditions; if any return `False`, skip with `"skipped_conditional"`
+- [ ] Add `skipped_conditional` status to frontend DAG store with a distinct visual (dimmed with "?" badge)
+
+#### 11C: Inter-Agent Mailbox
+- [ ] Create `atlas_weave/mailbox.py`: typed `Mailbox` with `send(channel, message)` and `receive(channel)`
+- [ ] Messages are Pydantic models serialized to JSON, stored under `state["_mailbox"]`
+- [ ] Inject per-agent `Mailbox` view into `AgentContext`
+- [ ] Mailbox contents included in `node_completed` summary
+
+#### 11D: Agent Hooks
+- [ ] Add `on_start(ctx)` and `on_complete(ctx, result)` optional lifecycle hooks to `Agent` base class (default no-op)
+- [ ] Hooks run within the timeout envelope; failures are logged but do not fail the agent
+
+### Acceptance Criteria
+1. An agent with `timeout_seconds = 5` is killed after 5s and downstream dependents are skipped
+2. An agent with `max_retries = 2` retries twice before marking as failed
+3. A conditional edge with `{"when": "lambda state: False"}` skips the target agent
+4. `ctx.mailbox.send("data", payload)` in Agent A is receivable by Agent B
+5. Frontend displays `skipped_conditional` nodes with a distinct visual
+6. All new features have pytest coverage
+
+---
+
+## Phase 12 - Analytics Dashboard
+
+### Goal
+A dedicated analytics page with charts showing run history trends, cost tracking over time, agent duration breakdowns, and per-recipe success rates.
+
+### Checklist
+
+#### 12A: Charting Infrastructure
+- [ ] Add a charting library (chart.js or layerchart) to frontend dependencies
+- [ ] Create reusable chart components: `BarChart.svelte`, `LineChart.svelte`, `DonutChart.svelte`
+
+#### 12B: Analytics Rust Commands
+- [ ] Implement `commands/analytics.rs`: `get_run_stats` — success/fail/cancel counts per recipe over a date range
+- [ ] Implement `get_cost_trend` — daily/weekly LLM cost totals from `run_events` where `event_type = 'llm_result'`
+- [ ] Implement `get_duration_breakdown` — per-agent avg/p50/p95 durations from `run_nodes`
+- [ ] Implement `get_tool_usage` — tool call counts by tool name from `run_events`
+- [ ] Add typed invoke wrappers in `frontend/app/src/lib/api/tauri/analytics.ts`
+
+#### 12C: Analytics Page
+- [ ] Create `/analytics/+page.svelte` route with navigation link
+- [ ] Run History section: line chart of runs per day colored by status
+- [ ] Cost Tracking section: stacked bar chart of daily LLM spend by model
+- [ ] Duration Breakdown section: horizontal bar chart of average agent durations per recipe
+- [ ] Tool Usage section: donut chart of tool call distribution
+- [ ] Date range picker (7d, 30d, 90d, all time)
+
+#### 12D: Run Comparison
+- [ ] Create `RunComparison.svelte`: side-by-side view of two runs for the same recipe
+- [ ] Show delta for each agent: duration change, record count change, error count change
+- [ ] Accessible from run history via "Compare with..." button
+
+### Acceptance Criteria
+1. Analytics page shows charts for a recipe with 3+ historical runs
+2. Cost trend chart accurately reflects LLM spend from `llm_result` events
+3. Duration breakdown shows per-agent timing for the selected recipe
+4. Run comparison highlights differences between two runs
+5. Charts render correctly in both dark and light themes
+6. Date range picker filters all charts simultaneously
+
+---
+
+## Phase 13 - Plugin & Extension System
+
+### Goal
+Make Atlas Weave extensible with a manifest format for third-party recipes, tools, and agent libraries that can be installed from a local directory.
+
+### Checklist
+
+#### 13A: Plugin Manifest
+- [ ] Define `atlas-weave-plugin.json` manifest: `name`, `version`, `description`, `author`, `type` (recipe | tool | agent-library), `entry_point`, `dependencies`, `min_atlas_weave_version`
+- [ ] Create `atlas_weave/plugin.py`: `PluginManifest` Pydantic model
+- [ ] Create `atlas_weave/plugin_loader.py`: discover plugins from `~/.atlas-weave/plugins/` and `{repo}/plugins/`
+
+#### 13B: Plugin Lifecycle in Rust
+- [ ] Implement `services/plugin_manager.rs`: scan, validate, maintain plugin registry in SQLite
+- [ ] Add `plugins` table: `name`, `version`, `type`, `path`, `enabled`, `installed_at`
+- [ ] Implement `commands/plugins.rs`: `list_plugins`, `enable_plugin`, `disable_plugin`, `get_plugin_detail`
+- [ ] On startup, load enabled plugins and merge their recipes/tools into registries
+
+#### 13C: Tool Extension API
+- [ ] Create `atlas_weave/plugin_tools.py`: `load_plugin_tools(manifest) -> list[Tool]`
+- [ ] Update `register_builtin_tools` to also register plugin-provided tools
+- [ ] Verify external tools emit events correctly through existing helpers
+
+#### 13D: Plugin Management UI
+- [ ] Create `/plugins/+page.svelte` route with enable/disable toggles and detail views
+- [ ] "Install from folder" button that validates and copies a plugin directory
+- [ ] Add "Plugins" link to main layout navigation
+
+### Acceptance Criteria
+1. A plugin placed in `~/.atlas-weave/plugins/` appears in the Plugins page
+2. Enabling a recipe plugin makes it appear in the launcher
+3. Enabling a tool plugin makes the tool available to all agents
+4. Disabling a plugin removes its recipes/tools without deleting files
+5. Invalid manifests show a clear error
+6. Plugin tool events appear correctly in node detail
+
+---
+
+## Phase 14 - Advanced DAG Features
+
+### Goal
+Support complex pipeline topologies: collapsible sub-graphs, dynamic node creation at runtime, and a visual recipe editor for building DAGs without code.
+
+### Checklist
+
+#### 14A: Sub-Graphs / Agent Groups
+- [ ] Add `group: ClassVar[str | None] = None` to `Agent` for static grouping
+- [ ] Update `build_execution_plan` to compute group-level status
+- [ ] Render groups in `DagViewer.svelte` as collapsible containers with shared border and label
+- [ ] Collapsed view shows summary status pill
+
+#### 14B: Dynamic Node Spawning
+- [ ] Create `atlas_weave/dynamic.py`: `DynamicAgentPool` helper for spawning N sub-agents at runtime
+- [ ] Dynamic agents emit `graph_patch` to add themselves, then standard lifecycle events
+- [ ] Update frontend `mergeRuntimeNodes` with animated transitions for new nodes
+- [ ] Dynamic nodes are visually distinct (dashed border) and grouped under parent
+
+#### 14C: Recipe Editor UI
+- [ ] Create `/editor/+page.svelte` with split-pane: visual DAG canvas (left) + property panel (right)
+- [ ] Drag-and-drop node palette listing available agent types
+- [ ] Click-and-drag between nodes to create edges; click edge to delete
+- [ ] Property panel: agent config, conditional edges, timeout/retry
+- [ ] "Export Recipe" generates a valid Python recipe file
+- [ ] "Validate" checks for cycles, missing deps, invalid configs
+
+### Acceptance Criteria
+1. Grouped agents render inside a collapsible container
+2. Collapsing shows a summary node; expanding shows all children
+3. Dynamic spawning of 5 workers shows 5 nodes appearing with animation
+4. Recipe editor creates a 3-agent pipeline via drag-and-drop
+5. Exported recipe is valid Python loadable by the runner
+6. Cycle detection prevents invalid edge creation
+
+---
+
+## Phase 15 - Production Builds & Auto-Update
+
+### Goal
+Ship Atlas Weave as a signed, installable desktop application with automatic update checks.
+
+### Checklist
+
+#### 15A: Build Pipeline
+- [ ] Enable `bundle.active = true` in `tauri.conf.json`, configure NSIS (Windows), DMG (macOS), AppImage + deb (Linux)
+- [ ] Add `tauri-plugin-updater` to Cargo dependencies
+- [ ] Generate app icon set from base SVG (16x16 through 512x512 + .ico)
+- [ ] GitHub Actions release workflow: on tag `v*`, build all platforms, upload to GitHub Releases
+- [ ] Configure code signing for Windows and macOS via GitHub secrets
+
+#### 15B: Auto-Update
+- [ ] Configure `tauri-plugin-updater` with GitHub Releases as the update endpoint
+- [ ] On launch, background check; if update available, show `UpdateBanner.svelte`: "Update v{version} available. [Install Now] [Later]"
+- [ ] "Install Now" downloads, applies, prompts restart
+- [ ] Show release notes from GitHub Release body
+
+#### 15C: Python Bundling
+- [ ] Bundle Python sidecar via PyInstaller/Nuitka into a single executable
+- [ ] Update `sidecar.rs` to detect bundled vs dev mode
+- [ ] Include pip dependencies (httpx, pydantic, beautifulsoup4) in the bundle
+- [ ] Test bundled sidecar runs recipes on all platforms
+
+#### 15D: Version Management
+- [ ] Version display in Settings: app version, Python version, last update check
+- [ ] `scripts/bump-version.sh` to coordinate `tauri.conf.json`, `Cargo.toml`, `pyproject.toml`
+
+### Acceptance Criteria
+1. `cargo tauri build` produces a working installer on Windows
+2. Built app starts without a development environment
+3. Bundled Python sidecar executes `test_pipeline` to completion
+4. Auto-update finds newer releases and shows the banner
+5. "Install Now" downloads, applies, and prompts restart
+6. Settings page shows current app version
+
+---
+
+## Phase 16 - Multi-Provider LLM Support & Model Routing
+
+### Goal
+Support multiple LLM providers (Anthropic, OpenRouter, OpenAI, Ollama) with configurable routing rules and automatic fallback.
+
+### Checklist
+
+#### 16A: Provider Abstraction
+- [ ] Create `atlas_weave/providers/base.py`: `LLMProvider` ABC with `complete(messages, **kwargs) -> LLMProviderResponse`
+- [ ] Create concrete providers: `anthropic.py`, `openrouter.py` (extract from llm_tool), `openai.py`, `ollama.py`
+- [ ] Create `ProviderRegistry` mapping provider names to instances
+
+#### 16B: Model Router
+- [ ] Create `atlas_weave/model_router.py`: selects provider+model based on routing rules
+- [ ] Routing: `preferred_model`, `fallback_models`, `max_cost_per_call_usd`, `min_context_window`
+- [ ] Fallback chain: if preferred provider unavailable, try fallbacks in order
+- [ ] Emit `llm_call` events with actual provider/model used
+- [ ] Unified pricing table merging Anthropic, OpenRouter, and OpenAI
+
+#### 16C: Provider Configuration UI
+- [ ] Add "LLM Providers" section to Settings: API key, "Test Connection" button, status indicator per provider
+- [ ] Ollama auto-detection of local instance, list available models
+- [ ] Drag-to-reorder model preference editor
+
+#### 16D: Recipe-Level Model Config
+- [ ] Support `model_routing` field type in `config_schema` rendering as preference editor
+- [ ] Recipes can specify default routing rules; users override per-run
+
+### Acceptance Criteria
+1. Anthropic provider works with a valid API key
+2. Missing Anthropic key falls back to OpenRouter automatically
+3. Ollama provider works with a local instance
+4. "Test Connection" verifies each provider
+5. Run events show the actual provider/model used after routing
+6. Cost tracking attributes costs to the actual provider
+
+---
+
+## Phase 17 - Collaboration & Portability
+
+### Goal
+Enable sharing runs, recipes, and configurations through import/export, configuration profiles, and an audit log.
+
+### Checklist
+
+#### 17A: Run Export & Import
+- [ ] Implement `export_run`: packages run into a `.atw` zip (metadata, events, node summaries, output DB, recipe snapshot)
+- [ ] Implement `import_run`: reads `.atw`, inserts into local DB, restores output DB
+- [ ] "Export Run" / "Import Run" buttons in UI with file dialogs
+- [ ] Imported runs show an "imported" badge in history
+
+#### 17B: Recipe Packaging
+- [ ] Define `.atwrecipe` format: zip with manifest + Python source + sample config
+- [ ] Implement `export_recipe` and `import_recipe` commands
+- [ ] Export/import buttons on recipe detail and launcher
+
+#### 17C: Configuration Profiles
+- [ ] Add `config_profiles` table: `id`, `recipe_name`, `profile_name`, `config_json`, `created_at`
+- [ ] Implement CRUD commands for profiles
+- [ ] Profile dropdown in `RunConfig.svelte`: "Save as Profile...", "Load Profile", "Delete Profile"
+
+#### 17D: Audit Log
+- [ ] Add `audit_log` table: `id`, `timestamp`, `actor`, `action`, `details_json`
+- [ ] Write entries for all state-changing operations (run start/cancel, schedule changes, plugin toggles)
+- [ ] `AuditLog.svelte` viewable from Settings, searchable/filterable
+
+### Acceptance Criteria
+1. Exported `.atw` file reimports on a fresh install with correct DAG and events
+2. Recipe export/import preserves agents, edges, and config schema
+3. Config profiles persist and load correctly before run launch
+4. Audit log records every run start, cancel, schedule change, and plugin toggle
+5. Audit log is searchable by action type
+6. Imported runs display correctly in the DAG viewer
+
+---
+
+## Phase 18 - Performance & Scale
+
+### Goal
+Handle large DAGs (50+ nodes), high-frequency event streams (1000+ events/sec), and large output databases (100K+ rows) without UI jank.
+
+### Checklist
+
+#### 18A: Event Stream Optimization
+- [ ] Event batching in `event_bus.rs`: accumulate up to 16ms before emitting `atlas-weave:event-batch`
+- [ ] Frontend processes batches in a single store `update` to minimize re-renders
+- [ ] Consecutive `node_progress` events for the same node within a batch are merged
+- [ ] Event pruning in `eventStore`: keep last 5000 in memory, page older from SQLite on demand
+
+#### 18B: Virtual Scrolling
+- [ ] Add virtual scroll component to frontend
+- [ ] Replace scroll containers in `NodeLogs.svelte`, `RunLogViewer.svelte`, `DataTable.svelte`
+- [ ] Lazy-load log entries: fetch pages of 200 as user scrolls
+- [ ] Virtual-scroll data table: render only visible rows, lazy-load pages of 100
+
+#### 18C: DAG Layout Performance
+- [ ] For 20+ node DAGs, switch to ELK.js in a web worker for non-blocking layout
+- [ ] Incremental layout: `graph_patch` additions recompute only affected sub-graph
+- [ ] Level-of-detail: below 50% zoom, simplified circles; below 25%, dots
+- [ ] Edge bundling for 50+ edge DAGs
+
+#### 18D: Database Query Performance
+- [ ] Add indices on `run_events(event_type)` and `run_events(timestamp)`
+- [ ] Query result caching in Rust with 30s TTL for data inspector queries
+- [ ] `EXPLAIN QUERY PLAN` logging in debug mode for slow queries
+- [ ] Server-side column filtering to avoid transferring unused columns
+
+### Acceptance Criteria
+1. 50-node recipe renders without dropping below 30fps
+2. 10,000 log entries scroll at smooth 60fps
+3. 100K-row data inspector loads first page in under 500ms
+4. Event batching reduces IPC messages by at least 5x
+5. Memory stays under 500MB with 50K events in a run
+6. 50-node layout completes in under 200ms
+
+---
+
+## Phase 19 - Recipe Templates & Cookbook
+
+### Goal
+Ship a library of recipe templates and a guided creation flow so new users can build pipelines in minutes, establishing Atlas Weave as a general-purpose orchestration tool beyond the satellite domain.
+
+### Checklist
+
+#### 19A: Template Engine
+- [ ] Create `python/templates/` with template recipes: `web_scrape_and_summarize`, `data_etl_pipeline`, `research_report_generator`, `api_monitor`, `content_aggregator`
+- [ ] Create `atlas_weave/template.py`: `RecipeTemplate` with `name`, `description`, `category`, `parameters`
+- [ ] Implement `instantiate_template(template, values) -> Recipe` that substitutes parameters
+
+#### 19B: Template Gallery UI
+- [ ] Create `/templates/+page.svelte` with card grid of templates
+- [ ] Each card: name, description, category badge, agent count, estimated run time
+- [ ] Guided setup wizard: configure parameters → set credentials → preview DAG → save and launch
+- [ ] "Use Template" generates recipe files and installs them
+- [ ] Add "Templates" link to navigation
+
+#### 19C: Built-in Templates
+- [ ] `web_scrape_and_summarize`: 3 agents (Scraper → Processor → Summarizer)
+- [ ] `data_etl_pipeline`: 3 agents (Extractor → Transformer → Loader) with configurable source
+- [ ] `research_report_generator`: 4 agents (QueryBuilder → WebResearcher → Synthesizer → ReportWriter)
+- [ ] `api_monitor`: 2 agents (Poller → Analyzer) with anomaly alerts
+- [ ] `content_aggregator`: 3 agents (FeedFetcher → Deduplicator → Ranker) with LLM ranking
+
+#### 19D: Documentation
+- [ ] Create `docs/RECIPE_AUTHORING.md`: guide to writing custom recipes
+- [ ] Create `docs/TEMPLATE_GUIDE.md`: how to create and share templates
+- [ ] Inline help tooltips in the template wizard
+- [ ] Each template includes a README with usage and example output
+
+### Acceptance Criteria
+1. Template gallery shows 5+ templates with category filtering
+2. Guided wizard produces a runnable recipe in under 2 minutes
+3. Each built-in template runs to completion with test data
+4. Generated recipes follow existing conventions (RECIPE export, config_schema)
+5. Recipe authoring guide covers agent creation, tool usage, testing, events
+6. Templates are installable via the Phase 13 plugin system
+
+---
+
 ## Coding Standards
 
 ### Rust
