@@ -93,6 +93,18 @@ pub struct RunHistoryRecord {
 }
 
 #[derive(Debug, Clone)]
+pub struct ScheduleRecord {
+    pub id: String,
+    pub recipe_name: String,
+    pub cron_expression: String,
+    pub config_json: Option<String>,
+    pub enabled: bool,
+    pub last_run_id: Option<String>,
+    pub next_run_at: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct Paginated<T> {
     pub items: Vec<T>,
     pub total: i64,
@@ -868,6 +880,186 @@ impl Database {
         })
     }
 
+    pub fn insert_schedule(
+        &self,
+        id: &str,
+        recipe_name: &str,
+        cron_expression: &str,
+        config_json: Option<&str>,
+        next_run_at: Option<&str>,
+    ) -> AppResult<()> {
+        let connection = self.connect()?;
+        connection.execute(
+            r#"
+            INSERT INTO schedules (id, recipe_name, cron_expression, config_json, enabled, next_run_at, created_at)
+            VALUES (?1, ?2, ?3, ?4, 1, ?5, ?6)
+            "#,
+            params![
+                id,
+                recipe_name,
+                cron_expression,
+                config_json,
+                next_run_at,
+                Utc::now().to_rfc3339()
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_schedule(
+        &self,
+        id: &str,
+        cron_expression: Option<&str>,
+        config_json: Option<Option<&str>>,
+        enabled: Option<bool>,
+        next_run_at: Option<Option<&str>>,
+    ) -> AppResult<()> {
+        let connection = self.connect()?;
+        if let Some(cron) = cron_expression {
+            connection.execute(
+                "UPDATE schedules SET cron_expression = ?2 WHERE id = ?1",
+                params![id, cron],
+            )?;
+        }
+        if let Some(config) = config_json {
+            connection.execute(
+                "UPDATE schedules SET config_json = ?2 WHERE id = ?1",
+                params![id, config],
+            )?;
+        }
+        if let Some(en) = enabled {
+            connection.execute(
+                "UPDATE schedules SET enabled = ?2 WHERE id = ?1",
+                params![id, en],
+            )?;
+        }
+        if let Some(next) = next_run_at {
+            connection.execute(
+                "UPDATE schedules SET next_run_at = ?2 WHERE id = ?1",
+                params![id, next],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn delete_schedule(&self, id: &str) -> AppResult<()> {
+        let connection = self.connect()?;
+        connection.execute("DELETE FROM schedules WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    pub fn get_schedule(&self, id: &str) -> AppResult<Option<ScheduleRecord>> {
+        let connection = self.connect()?;
+        let record = connection
+            .query_row(
+                r#"
+                SELECT id, recipe_name, cron_expression, config_json, enabled, last_run_id, next_run_at, created_at
+                FROM schedules WHERE id = ?1
+                "#,
+                [id],
+                |row| {
+                    Ok(ScheduleRecord {
+                        id: row.get(0)?,
+                        recipe_name: row.get(1)?,
+                        cron_expression: row.get(2)?,
+                        config_json: row.get(3)?,
+                        enabled: row.get(4)?,
+                        last_run_id: row.get(5)?,
+                        next_run_at: row.get(6)?,
+                        created_at: row.get(7)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(record)
+    }
+
+    pub fn get_schedules(&self, recipe_name: Option<&str>) -> AppResult<Vec<ScheduleRecord>> {
+        let connection = self.connect()?;
+        let map_row = |row: &rusqlite::Row<'_>| {
+            Ok(ScheduleRecord {
+                id: row.get(0)?,
+                recipe_name: row.get(1)?,
+                cron_expression: row.get(2)?,
+                config_json: row.get(3)?,
+                enabled: row.get(4)?,
+                last_run_id: row.get(5)?,
+                next_run_at: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        };
+
+        match recipe_name {
+            Some(name) => {
+                let mut statement = connection.prepare(
+                    r#"
+                    SELECT id, recipe_name, cron_expression, config_json, enabled, last_run_id, next_run_at, created_at
+                    FROM schedules WHERE recipe_name = ?1 ORDER BY created_at ASC
+                    "#,
+                )?;
+                let rows = statement.query_map([name], map_row)?;
+                Ok(rows.collect::<Result<Vec<_>, _>>()?)
+            }
+            None => {
+                let mut statement = connection.prepare(
+                    r#"
+                    SELECT id, recipe_name, cron_expression, config_json, enabled, last_run_id, next_run_at, created_at
+                    FROM schedules ORDER BY created_at ASC
+                    "#,
+                )?;
+                let rows = statement.query_map([], map_row)?;
+                Ok(rows.collect::<Result<Vec<_>, _>>()?)
+            }
+        }
+    }
+
+    pub fn get_enabled_schedules(&self) -> AppResult<Vec<ScheduleRecord>> {
+        let connection = self.connect()?;
+        let mut statement = connection.prepare(
+            r#"
+            SELECT id, recipe_name, cron_expression, config_json, enabled, last_run_id, next_run_at, created_at
+            FROM schedules WHERE enabled = 1 ORDER BY created_at ASC
+            "#,
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(ScheduleRecord {
+                id: row.get(0)?,
+                recipe_name: row.get(1)?,
+                cron_expression: row.get(2)?,
+                config_json: row.get(3)?,
+                enabled: row.get(4)?,
+                last_run_id: row.get(5)?,
+                next_run_at: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    pub fn update_schedule_after_trigger(
+        &self,
+        id: &str,
+        last_run_id: &str,
+        next_run_at: &str,
+    ) -> AppResult<()> {
+        let connection = self.connect()?;
+        connection.execute(
+            "UPDATE schedules SET last_run_id = ?2, next_run_at = ?3 WHERE id = ?1",
+            params![id, last_run_id, next_run_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn has_running_run(&self, recipe_name: &str) -> AppResult<bool> {
+        let connection = self.connect()?;
+        let exists: bool = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM runs WHERE recipe_name = ?1 AND status = 'running')",
+            [recipe_name],
+            |row| row.get(0),
+        )?;
+        Ok(exists)
+    }
+
     fn connect(&self) -> AppResult<Connection> {
         Ok(Connection::open(&self.path)?)
     }
@@ -997,6 +1189,173 @@ mod tests {
 
         assert_eq!(run.status, "cancelled");
         assert_eq!(run.nodes[0].status, "cancelled");
+
+        cleanup(&db_path);
+    }
+
+    #[test]
+    fn schedule_insert_and_read() {
+        let (database, db_path) = fixture_database();
+        database
+            .upsert_recipe(
+                "test_echo",
+                "test",
+                "0.1.0",
+                std::path::Path::new("python/recipes/test_echo"),
+                "{}",
+                r#"{"nodes":[],"edges":[]}"#,
+            )
+            .expect("recipe should be stored");
+
+        database
+            .insert_schedule(
+                "sched-1",
+                "test_echo",
+                "*/5 * * * *",
+                Some(r#"{"limit":10}"#),
+                Some("2026-03-21T12:05:00Z"),
+            )
+            .expect("schedule should insert");
+
+        let record = database
+            .get_schedule("sched-1")
+            .expect("query should succeed")
+            .expect("schedule should exist");
+        assert_eq!(record.recipe_name, "test_echo");
+        assert_eq!(record.cron_expression, "*/5 * * * *");
+        assert!(record.enabled);
+        assert_eq!(record.next_run_at.as_deref(), Some("2026-03-21T12:05:00Z"));
+
+        let all = database
+            .get_schedules(None)
+            .expect("list should work");
+        assert_eq!(all.len(), 1);
+
+        let filtered = database
+            .get_schedules(Some("test_echo"))
+            .expect("filtered list should work");
+        assert_eq!(filtered.len(), 1);
+
+        let empty = database
+            .get_schedules(Some("nonexistent"))
+            .expect("filtered list should work");
+        assert!(empty.is_empty());
+
+        cleanup(&db_path);
+    }
+
+    #[test]
+    fn schedule_update_and_toggle() {
+        let (database, db_path) = fixture_database();
+        database
+            .upsert_recipe(
+                "test_echo",
+                "test",
+                "0.1.0",
+                std::path::Path::new("python/recipes/test_echo"),
+                "{}",
+                r#"{"nodes":[],"edges":[]}"#,
+            )
+            .expect("recipe should be stored");
+
+        database
+            .insert_schedule("sched-2", "test_echo", "0 * * * *", None, None)
+            .expect("schedule should insert");
+
+        database
+            .update_schedule("sched-2", Some("*/10 * * * *"), None, Some(false), None)
+            .expect("update should succeed");
+
+        let record = database
+            .get_schedule("sched-2")
+            .expect("query should succeed")
+            .expect("schedule should exist");
+        assert_eq!(record.cron_expression, "*/10 * * * *");
+        assert!(!record.enabled);
+
+        let enabled = database
+            .get_enabled_schedules()
+            .expect("enabled query should work");
+        assert!(enabled.is_empty());
+
+        database
+            .update_schedule("sched-2", None, None, Some(true), None)
+            .expect("re-enable should succeed");
+        let enabled = database
+            .get_enabled_schedules()
+            .expect("enabled query should work");
+        assert_eq!(enabled.len(), 1);
+
+        cleanup(&db_path);
+    }
+
+    #[test]
+    fn schedule_delete() {
+        let (database, db_path) = fixture_database();
+        database
+            .upsert_recipe(
+                "test_echo",
+                "test",
+                "0.1.0",
+                std::path::Path::new("python/recipes/test_echo"),
+                "{}",
+                r#"{"nodes":[],"edges":[]}"#,
+            )
+            .expect("recipe should be stored");
+
+        database
+            .insert_schedule("sched-3", "test_echo", "0 0 * * *", None, None)
+            .expect("schedule should insert");
+
+        database
+            .delete_schedule("sched-3")
+            .expect("delete should succeed");
+
+        let record = database
+            .get_schedule("sched-3")
+            .expect("query should succeed");
+        assert!(record.is_none());
+
+        cleanup(&db_path);
+    }
+
+    #[test]
+    fn has_running_run_check() {
+        let (database, db_path) = fixture_database();
+        database
+            .upsert_recipe(
+                "test_echo",
+                "test",
+                "0.1.0",
+                std::path::Path::new("python/recipes/test_echo"),
+                "{}",
+                r#"{"nodes":[],"edges":[]}"#,
+            )
+            .expect("recipe should be stored");
+
+        assert!(!database
+            .has_running_run("test_echo")
+            .expect("query should succeed"));
+
+        database
+            .insert_run("run-hr-1", "test_echo", &json!({}))
+            .expect("run should insert");
+
+        assert!(database
+            .has_running_run("test_echo")
+            .expect("query should succeed"));
+
+        database
+            .persist_event(&json!({
+                "type": "run_completed",
+                "run_id": "run-hr-1",
+                "timestamp": "2026-03-21T00:00:00Z"
+            }))
+            .expect("completion should persist");
+
+        assert!(!database
+            .has_running_run("test_echo")
+            .expect("query should succeed"));
 
         cleanup(&db_path);
     }

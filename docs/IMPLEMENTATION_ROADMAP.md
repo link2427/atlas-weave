@@ -246,12 +246,12 @@ Recipes can be scheduled to run on a cron interval. The scheduler triggers runs 
 
 ### Checklist
 
-- [ ] Implement `services/scheduler.rs`: reads schedules from SQLite, computes next run times, triggers `start_run` when due
-- [ ] Implement run deduplication: if a run for the same recipe is already in `running` status, skip
-- [ ] Implement `commands/schedules.rs`: `create_schedule`, `update_schedule`, `delete_schedule`, `get_schedules`
-- [ ] Create `ScheduleManager.svelte`: list schedules, create/edit with cron expression, toggle enabled/disabled
-- [ ] Show next scheduled run time in recipe list
-- [ ] Scheduler starts on app launch, persists across restarts
+- [x] Implement `services/scheduler.rs`: reads schedules from SQLite, computes next run times, triggers `start_run` when due
+- [x] Implement run deduplication: if a run for the same recipe is already in `running` status, skip
+- [x] Implement `commands/schedules.rs`: `create_schedule`, `update_schedule`, `delete_schedule`, `get_schedules`
+- [x] Create `SchedulePanel.svelte`: create/edit schedule with cron expression, toggle enabled/disabled, human-readable description
+- [x] Show next scheduled run time in schedule panel
+- [x] Scheduler starts on app launch, persists across restarts
 
 ### Acceptance Criteria
 1. Creating a schedule with "0 */6 * * *" triggers a run every 6 hours

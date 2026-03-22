@@ -9,6 +9,7 @@ use commands::{
     files::{pick_csv_file, pick_save_csv_file},
     recipes::{get_recipe_detail, list_recipes},
     runs::{cancel_run, get_run, get_run_events, get_run_history, start_run},
+    schedules::{create_schedule, delete_schedule, get_schedules, update_schedule},
     settings::{get_credentials, save_credentials},
 };
 use db::Database;
@@ -93,6 +94,9 @@ pub fn run() {
                 run_manager,
             });
 
+            let scheduler = services::scheduler::Scheduler::start(app.handle().clone());
+            app.manage(scheduler);
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -110,7 +114,11 @@ pub fn run() {
             resolve_recipe_db_path,
             export_csv,
             get_credentials,
-            save_credentials
+            save_credentials,
+            create_schedule,
+            update_schedule,
+            delete_schedule,
+            get_schedules
         ])
         .run(tauri::generate_context!())
         .expect("failed to run Atlas Weave application");

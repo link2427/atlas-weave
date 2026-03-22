@@ -10,6 +10,7 @@
   import { getRecipeDetail, listRecipes, type Recipe, type RecipeConfigField, type RecipeDetail } from '$lib/api/tauri/recipes';
   import { getRunHistory, startRun, type RunHistoryItem } from '$lib/api/tauri/runs';
   import RunConfig from '$lib/features/run/RunConfig.svelte';
+  import SchedulePanel from '$lib/features/schedule/SchedulePanel.svelte';
 
   let recipes: Recipe[] = [];
   let selectedRecipe: string | null = null;
@@ -262,6 +263,10 @@
         }}
         on:submit={handleStartRun}
       />
+
+      {#if selectedRecipe}
+        <SchedulePanel recipeName={selectedRecipe} />
+      {/if}
 
       {#if errorMessage}
         <div class="rounded-lg border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">

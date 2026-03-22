@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -7,8 +7,8 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 use crate::{
-    db::Paginated,
-    services::{event_bus, sidecar},
+    db::{Database, Paginated},
+    services::{credentials::CredentialStore, event_bus, run_manager::RunManager, sidecar},
     AppError, AppResult, AppState,
 };
 
@@ -104,20 +104,18 @@ pub struct PaginatedDto<T> {
     pub page_size: u32,
 }
 
-#[tauri::command]
-pub async fn start_run(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    recipe: String,
+pub async fn trigger_run(
+    app: &AppHandle,
+    database: &Database,
+    run_manager: &Arc<RunManager>,
+    credentials: &Arc<CredentialStore>,
+    recipe_name: &str,
     config: Option<Value>,
-) -> AppResult<StartRunResponse> {
+) -> AppResult<String> {
     let run_id = Uuid::new_v4().to_string();
-    let database = state.database.as_ref().clone();
-    let run_manager = state.run_manager.clone();
-    let credentials = state.credentials.clone();
     let recipe_record = database
-        .get_recipe_detail(&recipe)?
-        .ok_or_else(|| AppError::Message(format!("recipe not found: {recipe}")))?;
+        .get_recipe_detail(recipe_name)?
+        .ok_or_else(|| AppError::Message(format!("recipe not found: {recipe_name}")))?;
     let requested_config = normalize_config_object(config)?;
     let secret_fields = secret_fields(&recipe_record.config_schema);
     let persisted_config = redact_secrets(&requested_config, &secret_fields);
@@ -146,15 +144,19 @@ pub async fn start_run(
         .map(|(key, value)| (secret_env_var(&key), value))
         .collect::<HashMap<_, _>>();
 
-    database.insert_run(&run_id, &recipe, &persisted_config)?;
+    database.insert_run(&run_id, recipe_name, &persisted_config)?;
     let app_for_sidecar = app.clone();
+    let app_for_event = app.clone();
+    let database_clone = database.clone();
+    let run_manager_clone = run_manager.clone();
+    let recipe_owned = recipe_name.to_string();
     let run_id_for_task = run_id.clone();
     tokio::spawn(async move {
         if let Err(error) = sidecar::spawn_run(
             app_for_sidecar,
-            database.clone(),
-            run_manager,
-            recipe,
+            database_clone.clone(),
+            run_manager_clone,
+            recipe_owned,
             run_id_for_task.clone(),
             requested_config,
             env_vars,
@@ -162,8 +164,8 @@ pub async fn start_run(
         .await
         {
             let _ = event_bus::publish_payload(
-                &app,
-                &database,
+                &app_for_event,
+                &database_clone,
                 json!({
                     "type": "run_failed",
                     "run_id": run_id_for_task,
@@ -173,6 +175,20 @@ pub async fn start_run(
         }
     });
 
+    Ok(run_id)
+}
+
+#[tauri::command]
+pub async fn start_run(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    recipe: String,
+    config: Option<Value>,
+) -> AppResult<StartRunResponse> {
+    let database = state.database.as_ref().clone();
+    let run_manager = state.run_manager.clone();
+    let credentials = state.credentials.clone();
+    let run_id = trigger_run(&app, &database, &run_manager, &credentials, &recipe, config).await?;
     Ok(StartRunResponse {
         run_id,
         status: "running".to_string(),
