@@ -1,10 +1,10 @@
 use std::time::Duration;
 
+use crate::commands::runs::trigger_run;
+use crate::AppState;
 use chrono::Utc;
 use croner::Cron;
 use tauri::Manager;
-use crate::commands::runs::trigger_run;
-use crate::AppState;
 
 const TICK_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -51,13 +51,9 @@ fn recompute_all_next_runs(app: &tauri::AppHandle) {
             }
         };
 
-        if let Err(error) = database.update_schedule(
-            &schedule.id,
-            None,
-            None,
-            None,
-            Some(Some(&next)),
-        ) {
+        if let Err(error) =
+            database.update_schedule(&schedule.id, None, None, None, Some(Some(&next)))
+        {
             eprintln!(
                 "[scheduler] failed to update next_run_at for {}: {error}",
                 schedule.id
@@ -113,13 +109,8 @@ async fn tick(app: &tauri::AppHandle) {
                 );
                 // Still advance next_run_at so we don't keep retrying
                 if let Some(next) = compute_next_fire(&schedule.cron_expression) {
-                    let _ = database.update_schedule(
-                        &schedule.id,
-                        None,
-                        None,
-                        None,
-                        Some(Some(&next)),
-                    );
+                    let _ =
+                        database.update_schedule(&schedule.id, None, None, None, Some(Some(&next)));
                 }
                 continue;
             }
@@ -172,13 +163,8 @@ async fn tick(app: &tauri::AppHandle) {
                 );
                 // Advance next_run_at even on failure
                 if let Some(next) = compute_next_fire(&schedule.cron_expression) {
-                    let _ = database.update_schedule(
-                        &schedule.id,
-                        None,
-                        None,
-                        None,
-                        Some(Some(&next)),
-                    );
+                    let _ =
+                        database.update_schedule(&schedule.id, None, None, None, Some(Some(&next)));
                 }
             }
         }

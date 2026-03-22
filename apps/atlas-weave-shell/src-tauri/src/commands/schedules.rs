@@ -71,10 +71,7 @@ pub fn create_schedule(
 
     let id = Uuid::new_v4().to_string();
     let next_run_at = compute_next_fire(&cron_expression);
-    let config_json = config
-        .as_ref()
-        .map(serde_json::to_string)
-        .transpose()?;
+    let config_json = config.as_ref().map(serde_json::to_string).transpose()?;
 
     database.insert_schedule(
         &id,
@@ -109,20 +106,15 @@ pub fn update_schedule(
         validate_cron(cron)?;
     }
 
-    let config_json = config
-        .as_ref()
-        .map(serde_json::to_string)
-        .transpose()?;
+    let config_json = config.as_ref().map(serde_json::to_string).transpose()?;
 
     // Determine the effective cron expression for recomputing next_run_at
     let effective_cron = match &cron_expression {
         Some(c) => c.clone(),
-        None => {
-            database
-                .get_schedule(&id)?
-                .map(|s| s.cron_expression)
-                .unwrap_or_default()
-        }
+        None => database
+            .get_schedule(&id)?
+            .map(|s| s.cron_expression)
+            .unwrap_or_default(),
     };
 
     let next_run_at = compute_next_fire(&effective_cron);
@@ -153,8 +145,6 @@ pub fn get_schedules(
     state: State<'_, AppState>,
     recipe_name: Option<String>,
 ) -> AppResult<Vec<ScheduleDto>> {
-    let records = state
-        .database
-        .get_schedules(recipe_name.as_deref())?;
+    let records = state.database.get_schedules(recipe_name.as_deref())?;
     Ok(records.into_iter().map(record_to_dto).collect())
 }

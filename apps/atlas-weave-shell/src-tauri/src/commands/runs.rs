@@ -190,7 +190,16 @@ pub async fn start_run(
     let database = state.database.as_ref().clone();
     let run_manager = state.run_manager.clone();
     let credentials = state.credentials.clone();
-    let run_id = trigger_run(&app, &database, &run_manager, &credentials, &recipe, config, None).await?;
+    let run_id = trigger_run(
+        &app,
+        &database,
+        &run_manager,
+        &credentials,
+        &recipe,
+        config,
+        None,
+    )
+    .await?;
     Ok(StartRunResponse {
         run_id,
         status: "running".to_string(),

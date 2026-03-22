@@ -65,10 +65,7 @@ fn maybe_notify(app: &AppHandle, payload: &Value) {
                 .unwrap_or("Unknown error");
             ("Run Failed", format!("Run {short_id}…: {err}"))
         }
-        "run_cancelled" => (
-            "Run Cancelled",
-            format!("Run {short_id}… was cancelled"),
-        ),
+        "run_cancelled" => ("Run Cancelled", format!("Run {short_id}… was cancelled")),
         _ => return,
     };
 

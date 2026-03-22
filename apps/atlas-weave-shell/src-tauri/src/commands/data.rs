@@ -105,9 +105,7 @@ fn sqlite_value_to_json(val: rusqlite::types::Value) -> Value {
             serde_json::Number::from_f64(f).map_or(Value::Null, Value::Number)
         }
         rusqlite::types::Value::Text(s) => Value::String(s),
-        rusqlite::types::Value::Blob(b) => {
-            Value::String(format!("<blob {} bytes>", b.len()))
-        }
+        rusqlite::types::Value::Blob(b) => Value::String(format!("<blob {} bytes>", b.len())),
     }
 }
 
@@ -305,12 +303,7 @@ pub fn resolve_recipe_db_path(recipe_name: String) -> AppResult<Option<String>> 
         .join("latest.sqlite");
 
     if db_path.exists() {
-        Ok(Some(
-            db_path
-                .to_str()
-                .unwrap_or_default()
-                .to_string(),
-        ))
+        Ok(Some(db_path.to_str().unwrap_or_default().to_string()))
     } else {
         Ok(None)
     }

@@ -515,10 +515,7 @@ impl Database {
                         let Some(node_id) = node.get("id").and_then(Value::as_str) else {
                             continue;
                         };
-                        let label = node
-                            .get("label")
-                            .and_then(Value::as_str)
-                            .unwrap_or(node_id);
+                        let label = node.get("label").and_then(Value::as_str).unwrap_or(node_id);
                         let description = node
                             .get("description")
                             .and_then(Value::as_str)
@@ -1226,9 +1223,7 @@ mod tests {
         assert!(record.enabled);
         assert_eq!(record.next_run_at.as_deref(), Some("2026-03-21T12:05:00Z"));
 
-        let all = database
-            .get_schedules(None)
-            .expect("list should work");
+        let all = database.get_schedules(None).expect("list should work");
         assert_eq!(all.len(), 1);
 
         let filtered = database
